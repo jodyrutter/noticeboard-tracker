@@ -10,6 +10,11 @@ from services.cohort_service import (
     create_cohort
 )
 
+from services.plan_service import {
+    get_all_plans,
+    create_plan
+}
+
 
 def response(status_code, body):
     return {
@@ -32,6 +37,10 @@ def lambda_handler(event, context):
     if method == "GET" and path == "/cohorts":
         cohorts = get_all_cohorts()
         return response(200, cohorts)
+        
+    if method == "GET" and path == "/plans":
+        plans = get_all_plans()
+        return response(200, plans)
 
     if method == "POST" and path == "/trainees":
         body = json.loads(event.get("body") or "{}")
@@ -65,6 +74,24 @@ def lambda_handler(event, context):
             {
                 "id": cohort_id,
                 "message": "Cohort created"
+            }
+        )
+        
+    if method == "POST" and path == "/plans":
+        body = json.loads(event.get("body") or "{}")
+
+        plan_id = create_plan(
+            body["title"],
+            body["description"],
+            body["due_date"],
+            body["created_by"]
+        )
+
+        return response(
+            201,
+            {
+                "id": plan_id,
+                "message": "Plan created"
             }
         )
 

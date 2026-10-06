@@ -18,10 +18,10 @@ def create_cohort(name, start_date, end_date):
     
     cursor.execute("INSERT INTO cohorts (name, start_date, end_date) VALUES (%s, %s, %s) RETURNING id;",
     (name, start_date, end_date));
-    trainee_id = cursor.fetchone()[0];
+    cohort_id = cursor.fetchone()[0];
     connection.commit();
     
     cursor.close();
     connection.close();
     
-    return trainee_id
+    return cohort_id
