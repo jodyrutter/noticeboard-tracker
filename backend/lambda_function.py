@@ -5,6 +5,11 @@ from services.trainee_service import (
     create_trainee
 )
 
+from services.cohort_service import (
+    get_all_cohorts,
+    create_cohort
+)
+
 
 def response(status_code, body):
     return {
@@ -23,6 +28,10 @@ def lambda_handler(event, context):
     if method == "GET" and path == "/trainees":
         trainees = get_all_trainees()
         return response(200, trainees)
+        
+    if method == "GET" and path == "/cohorts":
+        cohorts = get_all_cohorts()
+        return response(200, cohorts)
 
     if method == "POST" and path == "/trainees":
         body = json.loads(event.get("body") or "{}")
@@ -39,6 +48,23 @@ def lambda_handler(event, context):
             {
                 "id": trainee_id,
                 "message": "Trainee created"
+            }
+        )
+        
+    if method == "POST" and path == "/cohorts":
+        body = json.loads(event.get("body") or "{}")
+
+        cohort_id = create_cohort(
+            body["name"],
+            body["start_date"],
+            body["end_date"]
+        )
+
+        return response(
+            201,
+            {
+                "id": cohort_id,
+                "message": "Cohort created"
             }
         )
 

@@ -3,18 +3,10 @@ from lambda_function import lambda_handler
 event = {
     "requestContext": {
         "http": {
-            "method": "POST"
+            "method": "GET"
         }
     },
-    "rawPath": "/trainees",
-    "body": """
-    {
-        "user_id": 3,
-        "cohort_id": 1,
-        "status": "ACTIVE",
-        "onboarding_date": "2026-10-06"
-    }
-    """
+    "rawPath": "/cohorts"
 }
 
 response = lambda_handler(event, None)
