@@ -31,6 +31,8 @@ from services.notification_service import (
     mark_notification_as_read
 )
 
+from services.dashboard_service import get_dashboard_summary
+
 
 def response(status_code, body):
     return {
@@ -74,6 +76,14 @@ def lambda_handler(event, context):
         notifications = get_notifications_by_user(user_id)
 
         return response(200, notifications)
+        
+    if method == "GET" and path == "/dashboard":
+        dashboard = get_dashboard_summary()
+
+        return response(
+            200,
+            dashboard
+        )
 
     if method == "POST" and path == "/trainees":
         body = json.loads(event.get("body") or "{}")

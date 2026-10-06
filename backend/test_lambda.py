@@ -4,10 +4,10 @@ from lambda_function import lambda_handler
 event = {
     "requestContext": {
         "http": {
-            "method": "PUT"
+            "method": "GET"
         }
     },
-    "rawPath": "/notifications/1/read"
+    "rawPath": "/dashboard"
 }
 
 
