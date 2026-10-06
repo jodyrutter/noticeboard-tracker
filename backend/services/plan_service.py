@@ -12,7 +12,7 @@ def get_all_plans():
     
     return rows
     
-def create_plan(plan_title, plan_description, plan_due_date, plan_created_by, plan_created_at):
+def create_plan(plan_title, plan_description, plan_due_date, plan_created_by):
     connection = get_connection()
     cursor = connection.cursor()
     
