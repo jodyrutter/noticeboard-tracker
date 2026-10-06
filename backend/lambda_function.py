@@ -25,6 +25,12 @@ from services.progress_service import (
     get_progress_by_trainee
 )
 
+from services.notification_service import (
+    create_notification,
+    get_notifications_by_user,
+    mark_notification_as_read
+)
+
 
 def response(status_code, body):
     return {
@@ -60,6 +66,14 @@ def lambda_handler(event, context):
         progress = get_progress_by_trainee(trainee_id)
 
         return response(200, progress)
+
+    if method == "GET" and path.startswith("/notifications/"):
+        parts = path.strip("/").split("/")
+        user_id = int(parts[1])
+
+        notifications = get_notifications_by_user(user_id)
+
+        return response(200, notifications)
 
     if method == "POST" and path == "/trainees":
         body = json.loads(event.get("body") or "{}")
@@ -167,6 +181,19 @@ def lambda_handler(event, context):
             {
                 "id": progress_id,
                 "message": "Progress report created"
+            }
+        )
+        
+    if method == "PUT" and path.startswith("/notifications/") and path.endswith("/read"):
+        parts = path.strip("/").split("/")
+        notification_id = int(parts[1])
+
+        mark_notification_as_read(notification_id)
+
+        return response(
+            200,
+            {
+                "message": "Notification marked as read"
             }
         )
 
