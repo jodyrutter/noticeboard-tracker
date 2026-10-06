@@ -69,3 +69,39 @@ def get_dashboard_summary():
         "blocked_reports": blocked_reports,
         "missing_reports": missing_reports
     }
+    
+def get_trainee_overview():
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("
+        SELECT
+            t.id AS trainee_id,
+            u.name,
+            u.email,
+            c.name AS cohort_name,
+            t.status AS trainee_status
+        FROM trainees t
+        JOIN users u
+            ON t.user_id = u.id
+        LEFT JOIN cohorts c
+            ON t.cohort_id = c.id
+        ORDER BY u.name;")
+
+    rows = cursor.fetchall()
+
+    trainees = []
+
+    for row in rows:
+        trainees.append({
+            "trainee_id": row[0],
+            "name": row[1],
+            "email": row[2],
+            "cohort": row[3],
+            "status": row[4]
+        })
+
+    cursor.close()
+    connection.close()
+
+    return trainees

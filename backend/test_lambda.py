@@ -7,7 +7,7 @@ event = {
             "method": "GET"
         }
     },
-    "rawPath": "/dashboard"
+    "rawPath": "/dashboard/trainees"
 }
 
 
