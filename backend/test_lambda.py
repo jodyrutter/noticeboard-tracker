@@ -4,16 +4,11 @@ from lambda_function import lambda_handler
 event = {
     "requestContext": {
         "http": {
-            "method": "POST"
+            "method": "GET"
         }
     },
-    "rawPath": "/notifications",
-    "body": """
-    {
-        "user_id": 3,
-        "message": "New training plan assigned: AWS Deployment Week"
-    }
-    """
+    "rawPath": "/notifications/3"
+} """
 }
 
 
