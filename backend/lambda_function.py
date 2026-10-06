@@ -184,6 +184,22 @@ def lambda_handler(event, context):
             }
         )
         
+        if method == "POST" and path == "/notifications":
+            body = json.loads(event.get("body") or "{}")
+
+            notification_id = create_notification(
+                body["user_id"],
+                body["message"]
+            )
+
+            return response(
+                201,
+                {
+                    "id": notification_id,
+                    "message": "Notification created"
+                }
+            )
+        
     if method == "PUT" and path.startswith("/notifications/") and path.endswith("/read"):
         parts = path.strip("/").split("/")
         notification_id = int(parts[1])
