@@ -6,7 +6,7 @@ event = {
             "method": "POST"
         }
     },
-    "rawPath": "/plans/1/assign/trainee/6"
+    "rawPath": "/plans/1/assign/cohort/1"
 }
 
 response = lambda_handler(event, None)
