@@ -29,8 +29,8 @@ Role = Literal["TRAINEE", "HR", "MANAGER"]
 
 class SignupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: NonBlankString
-    email: NonBlankString
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    email: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]
     password: str = Field(min_length=1, max_length=1024, repr=False)
 
     @field_validator("email")

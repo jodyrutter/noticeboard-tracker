@@ -1,4 +1,15 @@
 from database import get_connection
+from contextlib import closing
+from psycopg2 import sql
+from psycopg2.errors import ForeignKeyViolation
+
+
+class InvalidTraineeUserError(Exception):
+    pass
+
+
+class InvalidCohortError(Exception):
+    pass
 
 def get_all_trainees():
     connection = get_connection()
@@ -13,15 +24,38 @@ def get_all_trainees():
     return rows
     
 def create_trainee(id_user, id_cohort, trainee_status, user_onboarding_date):
-    connection = get_connection()
-    cursor = connection.cursor()
-    
-    cursor.execute("INSERT INTO trainees (user_id, cohort_id, status, onboarding_date) VALUES (%s, %s, %s, %s) RETURNING id;",
-    (id_user, id_cohort, trainee_status, user_onboarding_date));
-    trainee_id = cursor.fetchone()[0];
-    connection.commit();
-    
-    cursor.close();
-    connection.close();
-    
-    return trainee_id
+    try:
+        with closing(get_connection()) as connection, connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO trainees (user_id, cohort_id, status, onboarding_date)
+                    SELECT id, %s, %s, %s FROM users
+                    WHERE id = %s AND role = 'TRAINEE'
+                    RETURNING id;
+                """, (id_cohort, trainee_status, user_onboarding_date, id_user))
+                row = cursor.fetchone()
+                if row is None:
+                    raise InvalidTraineeUserError
+                return row[0]
+    except ForeignKeyViolation as exc:
+        raise InvalidCohortError from exc
+
+
+def update_trainee(trainee_id, changes):
+    allowed = {"cohort_id", "status", "onboarding_date"}
+    if not changes or not set(changes).issubset(allowed):
+        raise ValueError("Invalid trainee update fields")
+    assignments = sql.SQL(", ").join(
+        sql.SQL("{} = %s").format(sql.Identifier(field)) for field in changes
+    )
+    try:
+        with closing(get_connection()) as connection, connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("UPDATE trainees SET {} WHERE id = %s RETURNING id;").format(assignments),
+                    (*changes.values(), trainee_id),
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
+    except ForeignKeyViolation as exc:
+        raise InvalidCohortError from exc

@@ -1,4 +1,5 @@
 from database import get_connection
+from contextlib import closing
 
 
 def create_notification(user_id, message):
@@ -45,19 +46,11 @@ def get_notifications_by_user(user_id):
     return rows
 
 
-def mark_notification_as_read(notification_id):
-    connection = get_connection()
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        UPDATE notifications
-        SET is_read = TRUE
-        WHERE id = %s;
-        """,
-        (notification_id,)
-    )
-
-    connection.commit()
-    cursor.close()
-    connection.close()
+def mark_notification_as_read(notification_id, user_id):
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                UPDATE notifications SET is_read = TRUE
+                WHERE id = %s AND user_id = %s RETURNING id;
+            """, (notification_id, user_id))
+            return cursor.fetchone() is not None

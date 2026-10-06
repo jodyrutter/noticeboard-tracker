@@ -1,4 +1,19 @@
 from database import get_connection
+from contextlib import closing
+
+
+def get_assigned_plans(user_id):
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.* FROM plans p
+                WHERE EXISTS (
+                    SELECT 1 FROM plan_assignments pa
+                    JOIN trainees t ON t.id = pa.trainee_id
+                    WHERE pa.plan_id = p.id AND t.user_id = %s
+                ) ORDER BY p.id;
+            """, (user_id,))
+            return cursor.fetchall()
 
 def get_all_plans():
     connection = get_connection()

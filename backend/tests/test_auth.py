@@ -87,7 +87,7 @@ def test_signup_cannot_choose_privileges(client, extra):
     assert SIGNUP["password"] not in response.text
 
 
-@pytest.mark.parametrize("changes", [{"password": "short"}, {"password": "abcdefgh"}, {"email": "bad"}, {"name": "  "}])
+@pytest.mark.parametrize("changes", [{"password": "short"}, {"password": "abcdefgh"}, {"email": "bad"}, {"name": "  "}, {"name": "a" * 101}, {"email": "a" * 140 + "@example.com"}])
 def test_signup_validation(client, changes):
     response = client.post("/api/signup", json={**SIGNUP, **changes})
     assert response.status_code == 422
