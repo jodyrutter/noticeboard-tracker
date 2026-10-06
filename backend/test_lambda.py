@@ -9,7 +9,7 @@ event = {
     "rawPath": "/trainees",
     "body": """
     {
-        "user_id": 2,
+        "user_id": 3,
         "cohort_id": 1,
         "status": "ACTIVE",
         "onboarding_date": "2026-10-06"
