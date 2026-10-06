@@ -16,7 +16,7 @@ def create_cohort(name, start_date, end_date):
     connection = get_connection()
     cursor = connection.cursor()
     
-    cursor.execute("INSERT INTO trainees (name, start_date, end_date) VALUES (%s, %s, %s) RETURNING id;",
+    cursor.execute("INSERT INTO cohorts (name, start_date, end_date) VALUES (%s, %s, %s) RETURNING id;",
     (name, start_date, end_date));
     trainee_id = cursor.fetchone()[0];
     connection.commit();
