@@ -18,6 +18,7 @@ def block_database(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("API tests must not connect to the database")
     monkeypatch.setattr(psycopg2, "connect", fail)
+    monkeypatch.setattr(main, "get_own_trainee", Mock(return_value={"id": 7, "user_id": 8}))
 
 
 @pytest.fixture
@@ -117,7 +118,7 @@ def test_serialization(client, monkeypatch):
 def test_docs_and_routing(client):
     assert client.get("/docs").status_code == 200
     schema = client.get("/openapi.json").json()
-    assert sum(len(methods) for path, methods in schema["paths"].items() if not path.startswith("/api/")) == 16
+    assert sum(len(methods) for path, methods in schema["paths"].items() if not path.startswith("/api/")) == 23
     assert client.get("/missing").status_code == 404
     assert client.delete("/trainees").status_code == 405
     assert client.get("/notifications/1/extra").status_code == 404

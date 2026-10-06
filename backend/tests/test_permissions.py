@@ -8,15 +8,22 @@ from fastapi.testclient import TestClient
 import auth
 import main
 from auth_models import User
-from services import auth_service, trainee_service, plan_service, progress_service, notification_service
+from services import auth_service, trainee_service, plan_service, progress_service, notification_service, cohort_service
 
 
 ROUTES = [
+    ("GET", "/trainees/7", None, {"HR", "MANAGER", "TRAINEE"}, 200),
+    ("PUT", "/trainees/7", {"status": "ACTIVE", "cohort_id": 2, "onboarding_date": "2026-10-06"}, {"HR"}, 200),
+    ("GET", "/cohorts/1", None, {"HR", "MANAGER", "TRAINEE"}, 200),
+    ("GET", "/plans/3", None, {"HR", "MANAGER", "TRAINEE"}, 200),
+    ("PUT", "/plans/3", {"title": "SQL", "description": None, "due_date": None}, {"MANAGER"}, 200),
+    ("DELETE", "/plans/3", None, {"MANAGER"}, 204),
+    ("GET", "/progress/plan/3", None, {"HR", "MANAGER", "TRAINEE"}, 200),
     ("GET", "/trainees", None, {"HR", "MANAGER"}, 200),
     ("GET", "/cohorts", None, {"HR", "MANAGER"}, 200),
-    ("GET", "/plans", None, {"MANAGER", "TRAINEE"}, 200),
-    ("GET", "/progress/trainee/7", None, {"MANAGER"}, 200),
-    ("GET", "/notifications/8", None, {"TRAINEE"}, 200),
+    ("GET", "/plans", None, {"HR", "MANAGER", "TRAINEE"}, 200),
+    ("GET", "/progress/trainee/7", None, {"HR", "MANAGER", "TRAINEE"}, 200),
+    ("GET", "/notifications/8", None, {"HR", "MANAGER", "TRAINEE"}, 200),
     ("GET", "/dashboard", None, {"MANAGER"}, 200),
     ("GET", "/dashboard/trainees", None, {"MANAGER"}, 200),
     ("POST", "/trainees", {"user_id": 8, "cohort_id": 1, "status": "ACTIVE", "onboarding_date": "2026-10-06"}, {"HR"}, 201),
@@ -27,7 +34,7 @@ ROUTES = [
     ("POST", "/plans/3/assign/cohort/1", None, {"MANAGER"}, 201),
     ("POST", "/progress", {"trainee_id": 7, "plan_id": 3, "status": "IN_PROGRESS", "comments": None}, {"TRAINEE"}, 201),
     ("POST", "/notifications", {"user_id": 8, "message": "Reminder"}, set(), 403),
-    ("PUT", "/notifications/12/read", None, {"TRAINEE"}, 200),
+    ("PUT", "/notifications/12/read", None, {"HR", "MANAGER", "TRAINEE"}, 200),
 ]
 
 
@@ -53,6 +60,8 @@ def client():
 @pytest.fixture
 def services(monkeypatch):
     names = [
+        "get_own_trainee", "get_own_cohort", "get_own_progress",
+        "get_trainee", "get_cohort", "get_plan", "update_plan", "delete_plan", "get_progress_by_plan",
         "get_all_trainees", "get_all_cohorts", "get_all_plans", "get_assigned_plans",
         "get_progress_by_trainee", "get_notifications_by_user", "get_dashboard_summary",
         "get_trainee_overview", "create_trainee", "update_trainee", "create_cohort",
@@ -60,6 +69,7 @@ def services(monkeypatch):
         "create_progress_report", "mark_notification_as_read",
     ]
     mocks = {name: Mock(return_value=12) for name in names}
+    mocks["get_own_trainee"].return_value = {"id": 7, "user_id": 8, "cohort_id": 1}
     for name, mock in mocks.items():
         monkeypatch.setattr(main, name, mock)
     return mocks
@@ -93,7 +103,9 @@ def test_matrix_covers_every_business_route(client):
                    .replace("/notifications/8", "/notifications/{user_id}")
                    .replace("/notifications/12", "/notifications/{notification_id}")
                    .replace("/plans/3", "/plans/{plan_id}")
-                   .replace("/cohort/1", "/cohort/{cohort_id}")) for method, path in operations}
+                   .replace("/cohort/1", "/cohort/{cohort_id}")
+                   .replace("/cohorts/1", "/cohorts/{cohort_id}")
+                   .replace("/plan/3", "/plan/{plan_id}")) for method, path in operations}
     assert normalized == actual
 
 
@@ -114,6 +126,7 @@ def test_plan_author_cannot_be_spoofed(client, user, services):
 
 
 def test_progress_checks_owner_and_assignment(client, user, services):
+    services["get_own_trainee"].return_value = {"id": 99}
     services["create_progress_report"].return_value = None
     body = {"trainee_id": 99, "plan_id": 3, "status": "IN_PROGRESS", "comments": None}
     assert client.post("/progress", json=body).status_code == 403
@@ -180,7 +193,7 @@ def test_real_token_uses_current_db_role_and_revocation(client, monkeypatch, ser
 def db(monkeypatch):
     connection, cursor = MagicMock(), MagicMock()
     connection.cursor.return_value.__enter__.return_value = cursor
-    for module in (trainee_service, plan_service, progress_service, notification_service):
+    for module in (trainee_service, plan_service, progress_service, notification_service, cohort_service):
         monkeypatch.setattr(module, "get_connection", lambda: connection)
     return connection, cursor
 
@@ -230,3 +243,219 @@ def test_update_only_changes_supplied_fields(db):
     assert trainee_service.update_trainee(7, {"cohort_id": None}) == 7
     assert cursor.execute.call_args.args[1] == (None, 7)
     connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("path,service", [("/trainees/7", "get_trainee"), ("/cohorts/1", "get_cohort"), ("/plans/3", "get_plan"), ("/progress/plan/3", "get_progress_by_plan")])
+def test_new_reads_not_found(client, user, services, path, service):
+    user.role = "MANAGER"
+    services[service].return_value = None
+    assert client.get(path).status_code == 404
+
+
+def test_plan_detail_ownership(client, user, services):
+    services["get_plan"].return_value = None
+    assert client.get("/plans/3").status_code == 404
+    services["get_plan"].assert_called_once_with(3, 8)
+    services["get_plan"].reset_mock()
+    user.role = "MANAGER"
+    services["get_plan"].return_value = {"id": 3, "title": "SQL"}
+    assert client.get("/plans/3").json() == {"id": 3, "title": "SQL"}
+    services["get_plan"].assert_called_once_with(3, None)
+
+
+def test_progress_plan_empty(client, user, services):
+    user.role = "MANAGER"
+    services["get_progress_by_plan"].return_value = []
+    assert client.get("/progress/plan/3").json() == []
+    services["get_progress_by_plan"].assert_called_once_with(3)
+
+
+@pytest.mark.parametrize("path,role,body,service", [
+    ("/trainees/7", "HR", {"cohort_id": None, "status": "ACTIVE", "onboarding_date": "2026-10-06"}, "update_trainee"),
+    ("/plans/3", "MANAGER", {"title": "SQL", "description": None, "due_date": None}, "update_plan"),
+])
+def test_put_requires_all_fields_and_rejects_identity_changes(client, user, services, path, role, body, service):
+    user.role = role
+    for field in body:
+        assert client.put(path, json={key: value for key, value in body.items() if key != field}).status_code == 422
+    for field in ("user_id", "created_by", "role"):
+        assert client.put(path, json={**body, field: 99}).status_code == 422
+    services[service].assert_not_called()
+    services[service].return_value = None
+    assert client.put(path, json=body).status_code == 404
+
+
+def test_put_plan_preserves_creator(client, user, services):
+    user.role = "MANAGER"
+    body = {"title": "Updated", "description": None, "due_date": None}
+    assert client.put("/plans/3", json=body).json() == {"id": 12, "message": "Plan updated"}
+    services["update_plan"].assert_called_once_with(3, "Updated", None, None)
+
+
+def test_delete_responses(client, user, services):
+    user.role = "MANAGER"
+    response = client.delete("/plans/3")
+    assert response.status_code == 204 and response.content == b""
+    services["delete_plan"].return_value = False
+    assert client.delete("/plans/3").status_code == 404
+    services["delete_plan"].side_effect = plan_service.PlanInUseError
+    assert client.delete("/plans/3").status_code == 409
+
+
+@pytest.mark.parametrize("module,function", [(trainee_service, "get_trainee"), (cohort_service, "get_cohort")])
+def test_detail_storage_returns_named_fields(db, module, function):
+    connection, cursor = db
+    cursor.fetchone.return_value = {"id": 7}
+    assert getattr(module, function)(7) == {"id": 7}
+    assert cursor.execute.call_args.args[1] == (7,)
+    connection.close.assert_called_once()
+
+
+def test_plan_detail_sql_filters_assignment(db):
+    connection, cursor = db
+    cursor.fetchone.return_value = None
+    assert plan_service.get_plan(3, 8) is None
+    sql, params = cursor.execute.call_args.args
+    assert "pa.plan_id = p.id AND t.user_id = %s" in sql
+    assert params == (3, 8)
+    connection.close.assert_called_once()
+
+
+def test_plan_edit_sql_changes_only_editable_fields(db):
+    connection, cursor = db
+    cursor.fetchone.return_value = (3,)
+    assert plan_service.update_plan(3, "SQL", None, None) == 3
+    sql, params = cursor.execute.call_args.args
+    assert "created_by" not in sql
+    assert params == ("SQL", None, None, 3)
+    connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("state", ["missing", "referenced", "unused"])
+def test_delete_storage_preserves_referenced_plans(db, state):
+    connection, cursor = db
+    cursor.fetchone.side_effect = [None] if state == "missing" else [(3,), (state == "referenced",)]
+    if state == "referenced":
+        with pytest.raises(plan_service.PlanInUseError):
+            plan_service.delete_plan(3)
+        assert connection.__exit__.call_args.args[0] is plan_service.PlanInUseError
+    else:
+        assert plan_service.delete_plan(3) is (state == "unused")
+    queries = [call.args[0] for call in cursor.execute.call_args_list]
+    assert "FOR UPDATE" in queries[0]
+    assert any("DELETE FROM plans" in query for query in queries) is (state == "unused")
+    if state != "missing":
+        assert "plan_assignments" in queries[1] and "progress_reports" in queries[1]
+    connection.close.assert_called_once()
+
+
+def test_delete_foreign_key_conflict_rolls_back(db):
+    connection, cursor = db
+    cursor.fetchone.side_effect = [(3,), (False,)]
+    cursor.execute.side_effect = [None, None, psycopg2.errors.ForeignKeyViolation()]
+    with pytest.raises(plan_service.PlanInUseError):
+        plan_service.delete_plan(3)
+    assert connection.__exit__.call_args.args[0] is psycopg2.errors.ForeignKeyViolation
+    connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_progress_by_plan_storage(db, exists):
+    connection, cursor = db
+    cursor.fetchone.return_value = (3,) if exists else None
+    cursor.fetchall.return_value = []
+    assert progress_service.get_progress_by_plan(3) == ([] if exists else None)
+    if exists:
+        assert "WHERE plan_id = %s" in cursor.execute.call_args.args[0]
+        assert cursor.execute.call_args.args[1] == (3,)
+    else:
+        cursor.fetchall.assert_not_called()
+    connection.close.assert_called_once()
+
+
+def test_no_new_me_routes(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    assert not any(path.startswith("/api/me/") for path in paths)
+    assert set(paths["/api/me"]) == {"get"}
+
+
+@pytest.mark.parametrize("path,service,args", [
+    ("/trainees/7", "get_own_trainee", (8, 7)),
+    ("/cohorts/1", "get_own_cohort", (8, 1)),
+    ("/plans/3", "get_plan", (3, 8)),
+])
+def test_owned_detail_does_not_expose_other_users(client, user, services, path, service, args):
+    services[service].return_value = None
+    assert client.get(path).status_code == 404
+    services[service].assert_called_once_with(*args)
+
+
+def test_own_trainee_progress(client, user, services):
+    services["get_own_progress"].return_value = [{"trainee_id": 7, "comments": "My report"}]
+    assert client.get("/progress/trainee/7").json() == [{"trainee_id": 7, "comments": "My report"}]
+    services["get_own_trainee"].assert_called_once_with(8, 7)
+    services["get_own_progress"].assert_called_once_with(8, trainee_id=7)
+    services["get_progress_by_trainee"].assert_not_called()
+    services["get_own_trainee"].return_value = None
+    services["get_own_progress"].reset_mock()
+    assert client.get("/progress/trainee/99").status_code == 404
+    services["get_own_progress"].assert_not_called()
+
+
+def test_own_plan_progress(client, user, services):
+    services["get_own_progress"].return_value = []
+    assert client.get("/progress/plan/3").json() == []
+    services["get_plan"].assert_called_once_with(3, 8)
+    services["get_own_progress"].assert_called_once_with(8, plan_id=3)
+    services["get_progress_by_plan"].assert_not_called()
+    services["get_plan"].return_value = None
+    services["get_own_progress"].reset_mock()
+    assert client.get("/progress/plan/99").status_code == 404
+    services["get_own_progress"].assert_not_called()
+
+
+@pytest.mark.parametrize("role", ["HR", "MANAGER", "TRAINEE"])
+def test_notifications_ownership_for_every_role(client, user, services, role):
+    user.role = role
+    assert client.get("/notifications/8").status_code == 200
+    assert client.get("/notifications/99").status_code == 403
+    services["get_notifications_by_user"].assert_called_once_with(8)
+    services["mark_notification_as_read"].return_value = False
+    assert client.put("/notifications/99/read").status_code == 404
+    services["mark_notification_as_read"].assert_called_once_with(99, 8)
+
+
+def test_progress_can_derive_identity_but_rejects_foreign_id(client, user, services):
+    body = {"plan_id": 3, "status": "IN_PROGRESS", "comments": None}
+    assert client.post("/progress", json=body).status_code == 201
+    services["get_own_trainee"].assert_called_once_with(8, None)
+    services["create_progress_report"].assert_called_once_with(7, 3, "IN_PROGRESS", None, 8)
+    services["get_own_trainee"].return_value = None
+    services["create_progress_report"].reset_mock()
+    assert client.post("/progress", json={**body, "trainee_id": 99}).status_code == 403
+    services["create_progress_report"].assert_not_called()
+
+
+def test_personal_sql_always_filters_by_authenticated_user(monkeypatch):
+    from services import personal_service
+    connection, cursor = MagicMock(), MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    monkeypatch.setattr(personal_service, "get_connection", lambda: connection)
+    cursor.fetchall.return_value = []
+    cursor.fetchone.return_value = None
+    assert personal_service.get_own_trainee(8, 99) is None
+    query, params = cursor.execute.call_args.args
+    assert "user_id = %s" in query and params == (8, 99, 99)
+    assert personal_service.get_own_cohort(8, 2) is None
+    query, params = cursor.execute.call_args.args
+    assert "t.user_id = %s" in query and params == (2, 8)
+    assert personal_service.get_own_progress(8, plan_id=3) == []
+    query, params = cursor.execute.call_args.args
+    assert "t.user_id = %s" in query and params == (8, None, None, 3, 3)
+
+
+def test_ambiguous_trainee_mapping_is_not_guessed(client, user, services):
+    from services.personal_service import MultipleTraineeRecordsError
+    services["get_own_trainee"].side_effect = MultipleTraineeRecordsError
+    assert client.post("/progress", json={"plan_id": 3, "status": "IN_PROGRESS", "comments": None}).status_code == 409
+    services["create_progress_report"].assert_not_called()

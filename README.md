@@ -21,18 +21,24 @@ database role on every request. HR is not a superuser.
 | Endpoint | Allowed roles and scope |
 | --- | --- |
 | `GET /trainees`, `GET /cohorts` | HR and MANAGER; managers need assignment targets. |
+| `GET /trainees/{trainee_id}`, `GET /cohorts/{cohort_id}` | HR/MANAGER, or the user linked to that trainee/cohort. Missing or inaccessible records return 404. |
 | `POST /trainees` | HR; enroll an existing user whose role is TRAINEE. |
 | `PATCH /trainees/{trainee_id}` | HR; edit status, onboarding date, or cohort. |
+| `PUT /trainees/{trainee_id}` | HR; replace all three editable trainee fields. |
 | `POST /cohorts` | HR. |
-| `GET /plans` | MANAGER: all plans. TRAINEE: only plans assigned to their trainee records. |
+| `GET /plans` | MANAGER: all plans. Other authenticated users: only plans assigned to their trainee records. |
+| `GET /plans/{plan_id}` | MANAGER: any plan. Other authenticated users: an assigned plan only; otherwise 404. |
 | `POST /plans` | MANAGER; creator is taken from the authenticated user. |
+| `PUT /plans/{plan_id}` | MANAGER; replace title, description, and due date; original creator stays unchanged. |
+| `DELETE /plans/{plan_id}` | MANAGER; 204 on deletion, 404 if missing, 409 if assignments or progress reference the plan. |
 | `POST /plans/{plan_id}/assign/trainee/{trainee_id}` | MANAGER. |
 | `POST /plans/{plan_id}/assign/cohort/{cohort_id}` | MANAGER. |
-| `GET /progress/trainee/{trainee_id}` | MANAGER. |
+| `GET /progress/trainee/{trainee_id}` | MANAGER, or the user who owns that trainee record. Other users receive 404. |
+| `GET /progress/plan/{plan_id}` | MANAGER sees all reports. An assigned user sees only their own reports. Inaccessible/missing plans return 404. |
 | `GET /dashboard`, `GET /dashboard/trainees` | MANAGER. |
 | `POST /progress` | TRAINEE; the supplied trainee ID must belong to the signed-in user and the plan must be assigned to that trainee. |
-| `GET /notifications/{user_id}` | TRAINEE; only their own user ID. |
-| `PUT /notifications/{notification_id}/read` | TRAINEE; only their own notification. Missing/other users' notifications return 404. |
+| `GET /notifications/{user_id}` | Any authenticated role; only their own user ID. |
+| `PUT /notifications/{notification_id}/read` | Any authenticated role; only their own notification. Missing/other users' notifications return 404. |
 | `POST /notifications` | Disabled for all MVP roles (403); no creation permission was specified. |
 
 Signup/login remain public and rate limited. `/api/me` and `/api/logout` remain
@@ -59,12 +65,29 @@ returns 404 and an invalid cohort returns 400. Signup creates the user account;
 HR creates its trainee record separately using `POST /trainees`.
 
 Plan creation now rejects `created_by` in the request body. Progress submission
-still takes `trainee_id`, `plan_id`, `status`, and `comments`, but checks ownership
-and assignment within the INSERT. Changing a cohort does not remove existing
+takes `plan_id`, `status`, and `comments`. An optional `trainee_id` is checked
+against the authenticated user; if omitted, the backend resolves their trainee
+record. Multiple matching records return 409 instead of guessing. Ownership and
+assignment are checked again within the INSERT. Changing a cohort does not remove existing
 plan assignments or automatically assign that cohort's previous plans.
 
 The role dependencies, edit endpoint, ownership SQL, permission tests, and DB
 grant are new AI-written changes. Existing service logic is reused where possible.
+
+The added detail, PUT, delete, and progress-by-plan services and tests are also
+AI-written; trainee PUT reuses the existing update service. The single-record GET
+endpoints return JSON objects with named fields. Existing list/progress endpoints
+keep their previous response shapes.
+
+`PUT /trainees/{trainee_id}` requires `cohort_id`, `status`, and `onboarding_date`.
+`PUT /plans/{plan_id}` requires `title`, `description`, and `due_date`.
+Nullable fields must still be supplied explicitly (use JSON null to clear them).
+Neither PUT creates a missing record or changes its owning user/creator.
+The existing trainee PATCH remains available for partial edits.
+
+Run `backend/migrations/003_plan_edit_permissions.sql` as a DB admin if the app
+user does not already have the plan UPDATE/DELETE privileges. Deletion checks
+assignments and reports before deleting and does not cascade away training history.
 
 ## Run locally (PowerShell)
 
@@ -141,3 +164,9 @@ frontend's origin is known.
 
 Framework references: [FastAPI request models](https://fastapi.tiangolo.com/tutorial/body/)
 and [Mangum adapter](https://mangum.fastapiexpert.com/adapter/).
+
+Ownership access is implemented on the existing ID-based routes. No new
+`/api/me/...` routes or `PATCH /api/me` were added; the original `GET /api/me`
+remains the current-user lookup. Trainee IDs are checked against `trainees.user_id`,
+not compared directly with the user ID. Staff write permissions are unchanged.
+The ownership-query helpers and associated tests are new AI-written code.

@@ -27,6 +27,13 @@ class TraineeUpdate(BaseModel):
         return self
 
 
+class TraineeReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cohort_id: int | None
+    status: str
+    onboarding_date: date
+
+
 class CohortCreate(BaseModel):
     name: str
     start_date: date
@@ -42,7 +49,7 @@ class PlanCreate(BaseModel):
 
 class ProgressCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    trainee_id: int
+    trainee_id: int | None = None
     plan_id: int
     status: str
     comments: str | None

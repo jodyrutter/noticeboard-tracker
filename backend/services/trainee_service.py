@@ -2,6 +2,7 @@ from database import get_connection
 from contextlib import closing
 from psycopg2 import sql
 from psycopg2.errors import ForeignKeyViolation
+from psycopg2.extras import RealDictCursor
 
 
 class InvalidTraineeUserError(Exception):
@@ -10,6 +11,13 @@ class InvalidTraineeUserError(Exception):
 
 class InvalidCohortError(Exception):
     pass
+
+
+def get_trainee(trainee_id):
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("SELECT * FROM trainees WHERE id = %s;", (trainee_id,))
+            return cursor.fetchone()
 
 def get_all_trainees():
     connection = get_connection()

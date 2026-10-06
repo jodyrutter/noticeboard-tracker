@@ -2,6 +2,19 @@ from database import get_connection
 from contextlib import closing
 
 
+def get_progress_by_plan(plan_id):
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM plans WHERE id = %s;", (plan_id,))
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute("""
+                SELECT * FROM progress_reports WHERE plan_id = %s
+                ORDER BY submitted_at DESC;
+            """, (plan_id,))
+            return cursor.fetchall()
+
+
 def create_progress_report(trainee_id, plan_id, status, comments, user_id):
     with closing(get_connection()) as connection, connection:
         with connection.cursor() as cursor:
