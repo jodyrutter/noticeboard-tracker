@@ -4,11 +4,10 @@ connection = get_connection()
 cursor = connection.cursor()
 
 cursor.execute("SELECT * FROM users;")
-
 rows = cursor.fetchall()
 
-for row in rows:
-    print(row)
+print("Connected successfully.")
+print("Users:", rows)
 
 cursor.close()
 connection.close()
