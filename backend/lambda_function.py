@@ -10,10 +10,10 @@ from services.cohort_service import (
     create_cohort
 )
 
-from services.plan_service import {
+from services.plan_service import (
     get_all_plans,
     create_plan
-}
+)
 
 
 def response(status_code, body):
