@@ -15,6 +15,11 @@ from services.plan_service import (
     create_plan
 )
 
+from services.assignment_service import (
+    assign_plan_to_trainee,
+    assign_plan_to_cohort
+)
+
 
 def response(status_code, body):
     return {
@@ -92,6 +97,44 @@ def lambda_handler(event, context):
             {
                 "id": plan_id,
                 "message": "Plan created"
+            }
+        )
+        
+    if method == "POST" and path.startswith("/plans/") and "/assign/trainee/" in path:
+        parts = path.strip("/").split("/")
+
+        plan_id = int(parts[1])
+        trainee_id = int(parts[4])
+
+        assignment_id = assign_plan_to_trainee(
+            plan_id,
+            trainee_id
+        )
+
+        return response(
+            201,
+            {
+                "id": assignment_id,
+                "message": "Plan assigned to trainee"
+            }
+        )
+        
+    if method == "POST" and path.startswith("/plans/") and "/assign/cohort/" in path:
+        parts = path.strip("/").split("/")
+
+        plan_id = int(parts[1])
+        cohort_id = int(parts[4])
+
+        assignment_ids = assign_plan_to_cohort(
+            plan_id,
+            cohort_id
+        )
+
+        return response(
+            201,
+            {
+                "assignment_ids": assignment_ids,
+                "message": "Plan assigned to cohort"
             }
         )
 

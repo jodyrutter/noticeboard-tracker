@@ -6,15 +6,7 @@ event = {
             "method": "POST"
         }
     },
-    "rawPath": "/plans",
-    "body": """
-    {
-        "title": "AWS Deployment Week",
-        "description": "Deploy NoticeBoardTracker using AWS.",
-        "due_date": "2026-10-15",
-        "created_by": 2
-    }
-    """
+    "rawPath": "/plans/1/assign/trainee/6"
 }
 
 response = lambda_handler(event, None)
