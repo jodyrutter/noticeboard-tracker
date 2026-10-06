@@ -6,7 +6,15 @@ event = {
             "method": "POST"
         }
     },
-    "rawPath": "/plans/1/assign/cohort/1"
+    "rawPath": "/progress",
+    "body": """
+    {
+        "trainee_id": 6,
+        "plan_id": 1,
+        "status": "IN_PROGRESS",
+        "comments": "Finished backend setup and working on deployment."
+    }
+    """
 }
 
 response = lambda_handler(event, None)

@@ -20,6 +20,11 @@ from services.assignment_service import (
     assign_plan_to_cohort
 )
 
+from services.progress_service import (
+    create_progress_report,
+    get_progress_by_trainee
+)
+
 
 def response(status_code, body):
     return {
@@ -46,6 +51,15 @@ def lambda_handler(event, context):
     if method == "GET" and path == "/plans":
         plans = get_all_plans()
         return response(200, plans)
+        
+    if method == "GET" and path.startswith("/progress/trainee/"):
+        parts = path.strip("/").split("/")
+
+        trainee_id = int(parts[2])
+
+        progress = get_progress_by_trainee(trainee_id)
+
+        return response(200, progress)
 
     if method == "POST" and path == "/trainees":
         body = json.loads(event.get("body") or "{}")
@@ -135,6 +149,24 @@ def lambda_handler(event, context):
             {
                 "assignment_ids": assignment_ids,
                 "message": "Plan assigned to cohort"
+            }
+        )
+        
+    if method == "POST" and path == "/progress":
+        body = json.loads(event.get("body") or "{}")
+
+        progress_id = create_progress_report(
+            body["trainee_id"],
+            body["plan_id"],
+            body["status"],
+            body["comments"]
+        )
+
+        return response(
+            201,
+            {
+                "id": progress_id,
+                "message": "Progress report created"
             }
         )
 
