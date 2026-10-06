@@ -7,7 +7,7 @@ event = {
         }
     },
     "rawPath": "/plans"
-}\q
+}
 
 response = lambda_handler(event, None)
 
