@@ -1,21 +1,21 @@
 from lambda_function import lambda_handler
 
+
 event = {
     "requestContext": {
         "http": {
             "method": "POST"
         }
     },
-    "rawPath": "/progress",
+    "rawPath": "/notifications",
     "body": """
     {
-        "trainee_id": 6,
-        "plan_id": 1,
-        "status": "IN_PROGRESS",
-        "comments": "Finished backend setup and working on deployment."
+        "user_id": 3,
+        "message": "New training plan assigned: AWS Deployment Week"
     }
     """
 }
+
 
 response = lambda_handler(event, None)
 
