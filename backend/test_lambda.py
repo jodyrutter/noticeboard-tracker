@@ -8,7 +8,6 @@ event = {
         }
     },
     "rawPath": "/notifications/3"
-} """
 }
 
 
