@@ -1,4 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+
+from auth_routes import router as auth_router, limiter, rate_limit_exceeded_handler
 
 from schemas import TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
 
@@ -33,6 +39,21 @@ from services.dashboard_service import (
 )
 
 app = FastAPI(title="Noticeboard Tracker", version="0.1.0")
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.include_router(auth_router)
+
+
+# Avoid echoing passwords in validation errors.
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path in ("/api/signup", "/api/login"):
+        return JSONResponse(status_code=422, content={"detail": [
+            {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
+            for error in exc.errors()
+        ]})
+    return await request_validation_exception_handler(request, exc)
 
 @app.get("/trainees")
 def list_trainees():

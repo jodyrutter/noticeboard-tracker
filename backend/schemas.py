@@ -1,4 +1,3 @@
-"""Request types inferred from the original handler; review against the DB schema."""
 from datetime import date
 
 from pydantic import BaseModel

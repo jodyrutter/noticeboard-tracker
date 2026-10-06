@@ -4,6 +4,10 @@ Noticeboard project for Cognixia Training
 The backend now uses FastAPI. The existing PostgreSQL service functions and SQL
 are reused unchanged. There is no frontend yet.
 
+Auth is implemented with signup, signin, logout, and current-user endpoints.
+See [auth setup and statement provenance](AUTH_REVIEW.md) for the required DB
+migration, secret configuration, reused/new code, and proposed access rules.
+
 ## Run locally (PowerShell)
 
 From the repository root, using Python 3.10 or newer:
@@ -12,6 +16,7 @@ From the repository root, using Python 3.10 or newer:
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r backend/requirements.txt
 $env:PG_PASSWORD = "your-database-password"
+$env:NOTICEBOARD_JWT_SECRET = "your-persistent-random-secret-at-least-32-bytes"
 .\.venv\Scripts\python -m uvicorn main:app --app-dir backend --reload
 ```
 
@@ -29,8 +34,8 @@ The server and docs can start without database access; data endpoints require it
 ```
 
 The automated suite mocks service calls and blocks PostgreSQL connections. It
-checks all 15 endpoints, argument forwarding, validation, serialization, docs,
-and the Lambda adapter. It does not verify SQL against the actual schema.
+checks all 15 original endpoints, auth, argument forwarding, validation,
+serialization, docs, and the Lambda adapter. It does not verify SQL against the actual schema.
 The original `backend/test_database.py`, `test_trainee_service.py`, and
 `test_lambda.py` remain manual scripts and only execute when run directly.
 The first two insert records into the configured database.
@@ -70,9 +75,10 @@ Intentional API differences to review:
 - Extra request fields are ignored, consistent with the old handler reading only
   named fields. No new status enum, date-order rule, or positive-ID rule was added.
 
-Existing limitations remain: no application authentication/authorization, database
-connection cleanup on exceptions, connection pooling, or friendly database error
-mapping. The schema and migrations are absent from this repo. In particular,
+Existing business endpoints still have no authorization restrictions. Their
+database connection cleanup on exceptions, pooling, and database error mapping
+remain unchanged. Auth storage does use transaction/connection cleanup. The full
+schema is absent; the new auth migration is in `backend/migrations`. In particular,
 marking an unknown notification read still returns success, as before. CORS can
 be configured once the frontend's origin is known.
 

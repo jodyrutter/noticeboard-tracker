@@ -1,4 +1,3 @@
-"""Exercise HTTP contracts with mocked services; never connect to PostgreSQL."""
 from datetime import date, datetime
 import asyncio
 import json
@@ -103,7 +102,7 @@ def test_serialization(client, monkeypatch):
 def test_docs_and_routing(client):
     assert client.get("/docs").status_code == 200
     schema = client.get("/openapi.json").json()
-    assert sum(len(methods) for methods in schema["paths"].values()) == 15
+    assert sum(len(methods) for path, methods in schema["paths"].items() if not path.startswith("/api/")) == 15
     assert client.get("/missing").status_code == 404
     assert client.delete("/trainees").status_code == 405
     assert client.get("/notifications/1/extra").status_code == 404
