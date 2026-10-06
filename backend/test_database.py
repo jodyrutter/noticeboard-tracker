@@ -1,23 +1,28 @@
 from database import get_connection
 
-connection = get_connection()
-cursor = connection.cursor()
 
-cursor.execute("""
-    INSERT INTO users (name, email, password_hash, role)
-    VALUES (%s, %s, %s, %s)
-    RETURNING id;
-""", (
-    "Test Manager",
-    "manager@test.com",
-    "temporary",
-    "MANAGER"
-))
+if __name__ == "__main__":
+    connection = get_connection()
 
-user_id = cursor.fetchone()[0]
-connection.commit()
+    cursor = connection.cursor()
 
-print("Created user with ID:", user_id)
+    cursor.execute("""
+        INSERT INTO users (name, email, password_hash, role)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id;
+    """, (
+        "Test Manager",
+        "manager@test.com",
+        "temporary",
+        "MANAGER"
+    ))
 
-cursor.close()
-connection.close()
+    user_id = cursor.fetchone()[0]
+
+    connection.commit()
+
+    print("Created user with ID:", user_id)
+
+    cursor.close()
+
+    connection.close()
