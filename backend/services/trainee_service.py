@@ -10,7 +10,7 @@ def get_all_trainees():
     cursor.close();
     connection.close();
     
-    return row
+    return rows
     
 def create_trainee(id_user, id_cohort, trainee_status, user_onboarding_date):
     connection = get_connection()
