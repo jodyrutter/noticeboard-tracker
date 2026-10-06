@@ -74,8 +74,7 @@ def get_trainee_overview():
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("
-        SELECT
+    cursor.execute("""SELECT
             t.id AS trainee_id,
             u.name,
             u.email,
@@ -86,7 +85,7 @@ def get_trainee_overview():
             ON t.user_id = u.id
         LEFT JOIN cohorts c
             ON t.cohort_id = c.id
-        ORDER BY u.name;")
+        ORDER BY u.name;""")
 
     rows = cursor.fetchall()
 
