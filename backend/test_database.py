@@ -3,11 +3,21 @@ from database import get_connection
 connection = get_connection()
 cursor = connection.cursor()
 
-cursor.execute("SELECT * FROM users;")
-rows = cursor.fetchall()
+cursor.execute("""
+    INSERT INTO users (name, email, password_hash, role)
+    VALUES (%s, %s, %s, %s)
+    RETURNING id;
+""", (
+    "Test Manager",
+    "manager@test.com",
+    "temporary",
+    "MANAGER"
+))
 
-print("Connected successfully.")
-print("Users:", rows)
+user_id = cursor.fetchone()[0]
+connection.commit()
+
+print("Created user with ID:", user_id)
 
 cursor.close()
 connection.close()
