@@ -1,3 +1,4 @@
+from psycopg2.extras import RealDictCursor
 from database import get_connection
 from contextlib import closing
 
@@ -26,7 +27,7 @@ def create_notification(user_id, message):
 
 def get_notifications_by_user(user_id):
     connection = get_connection()
-    cursor = connection.cursor()
+    cursor = connection.cursor(cursor_factory=RealDictCursor)
 
     cursor.execute(
         """
@@ -44,6 +45,7 @@ def get_notifications_by_user(user_id):
     connection.close()
 
     return rows
+
 
 
 def mark_notification_as_read(notification_id, user_id):

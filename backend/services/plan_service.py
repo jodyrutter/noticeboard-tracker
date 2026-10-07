@@ -57,7 +57,7 @@ def delete_plan(plan_id):
 
 def get_assigned_plans(user_id):
     with closing(get_connection()) as connection, connection:
-        with connection.cursor() as cursor:
+        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("""
                 SELECT p.* FROM plans p
                 WHERE EXISTS (
@@ -68,9 +68,10 @@ def get_assigned_plans(user_id):
             """, (user_id,))
             return cursor.fetchall()
 
+
 def get_all_plans():
     connection = get_connection()
-    cursor = connection.cursor()
+    cursor = connection.cursor(cursor_factory=RealDictCursor)
     
     cursor.execute("SELECT * FROM plans;");
     rows = cursor.fetchall();
@@ -79,6 +80,7 @@ def get_all_plans():
     connection.close();
     
     return rows
+
     
 def create_plan(plan_title, plan_description, plan_due_date, plan_created_by):
     connection = get_connection()

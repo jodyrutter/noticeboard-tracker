@@ -11,7 +11,7 @@ def get_cohort(cohort_id):
 
 def get_all_cohorts():
     connection = get_connection()
-    cursor = connection.cursor()
+    cursor = connection.cursor(cursor_factory=RealDictCursor)
     
     cursor.execute("SELECT * FROM cohorts;");
     rows = cursor.fetchall();
@@ -20,6 +20,7 @@ def get_all_cohorts():
     connection.close();
     
     return rows
+
     
 def create_cohort(name, start_date, end_date):
     connection = get_connection()

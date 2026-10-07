@@ -2,7 +2,8 @@
 Noticeboard project for Cognixia Training
 
 The backend uses FastAPI and PostgreSQL, reusing the original service functions
-with ownership checks for trainee actions. There is no frontend yet.
+with ownership checks for trainee actions. The React + TypeScript frontend is in
+`frontend/`; see [frontend setup and code provenance](frontend/README.md).
 
 Auth is implemented with signup, signin, logout, and current-user endpoints.
 The auth tables are created by `backend/migrations/001_auth.sql`. The backend
@@ -76,8 +77,8 @@ grant are new AI-written changes. Existing service logic is reused where possibl
 
 The added detail, PUT, delete, and progress-by-plan services and tests are also
 AI-written; trainee PUT reuses the existing update service. The single-record GET
-endpoints return JSON objects with named fields. Existing list/progress endpoints
-keep their previous response shapes.
+endpoints return JSON objects with named fields. List/progress endpoints now
+return arrays of named objects for the React frontend, rather than positional arrays.
 
 `PUT /trainees/{trainee_id}` requires `cohort_id`, `status`, and `onboarding_date`.
 `PUT /plans/{plan_id}` requires `title`, `description`, and `due_date`.
@@ -152,15 +153,15 @@ Intentional API differences to review:
 - Unknown routes use FastAPI's 404 JSON body; unsupported methods return 405.
 - Paths are matched exactly instead of the old prefix/substring matching.
 - Datetimes serialize as ISO 8601 with `T` between date and time rather than the
-  old `str(datetime)` space. Dates remain `YYYY-MM-DD`; row tuples remain arrays.
+  old `str(datetime)` space. Dates remain `YYYY-MM-DD`; list records now use named objects.
 - Trainee creation/updates, plan creation, progress submission, and auth reject
   extra fields. No new status enum, date-order rule, or positive-ID rule was added.
 
 The full schema is absent from the repository; SQL checks need verification
 against the deployed database. Existing unchanged services still need broader
 connection cleanup/error mapping improvements. Auth and modified ownership-write
-services use transaction/connection cleanup. CORS can be configured once the
-frontend's origin is known.
+services use transaction/connection cleanup. The local frontend uses a same-origin
+Vite proxy to the backend; production needs an equivalent reverse proxy.
 
 Framework references: [FastAPI request models](https://fastapi.tiangolo.com/tutorial/body/)
 and [Mangum adapter](https://mangum.fastapiexpert.com/adapter/).

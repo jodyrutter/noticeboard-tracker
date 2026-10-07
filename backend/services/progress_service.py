@@ -1,10 +1,11 @@
+from psycopg2.extras import RealDictCursor
 from database import get_connection
 from contextlib import closing
 
 
 def get_progress_by_plan(plan_id):
     with closing(get_connection()) as connection, connection:
-        with connection.cursor() as cursor:
+        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("SELECT id FROM plans WHERE id = %s;", (plan_id,))
             if cursor.fetchone() is None:
                 return None
@@ -13,6 +14,7 @@ def get_progress_by_plan(plan_id):
                 ORDER BY submitted_at DESC;
             """, (plan_id,))
             return cursor.fetchall()
+
 
 
 def create_progress_report(trainee_id, plan_id, status, comments, user_id):
@@ -34,7 +36,7 @@ def create_progress_report(trainee_id, plan_id, status, comments, user_id):
 
 def get_progress_by_trainee(trainee_id):
     connection = get_connection()
-    cursor = connection.cursor()
+    cursor = connection.cursor(cursor_factory=RealDictCursor)
 
     cursor.execute(
         """
