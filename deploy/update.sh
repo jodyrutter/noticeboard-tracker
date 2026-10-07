@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd /opt/noticeboard-tracker
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$repo_dir"
 if [ "$(id -u)" -eq 0 ]; then
     echo "Run as the repository owner, not root; sudo is used only for installation/restart." >&2
     exit 1
 fi
 exec 9>.deploy.lock
 flock -n 9 || { echo "Another deployment is running" >&2; exit 1; }
-test -f /etc/systemd/system/noticeboard.service
+if [ ! -f /etc/systemd/system/noticeboard.service ]; then
+    echo "Install the service first: bash deploy/install-service.sh" >&2
+    exit 1
+fi
+configured_dir=$(systemctl show noticeboard --property=WorkingDirectory --value)
+if [ "$configured_dir" != "$repo_dir" ]; then
+    echo "Service points to $configured_dir, but this checkout is $repo_dir. Run bash deploy/install-service.sh first." >&2
+    exit 1
+fi
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r backend/requirements-production.txt
 (cd frontend && npm ci && VITE_API_URL=/backend npm run build)

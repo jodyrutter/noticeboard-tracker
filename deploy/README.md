@@ -8,12 +8,12 @@ These files target a Linux EC2 host using systemd and Nginx. Commands below use 
 
 ## Your Ubuntu instance: 13.219.9.139
 
-This is an IP address, so DNS/domain ownership is not required for the IP-certificate option. First confirm this is still your instance's public address and preferably associate an Elastic IP to keep it stable. If it changes, update the Nginx configuration and obtain a certificate for the new address. Run initial setup steps 2–5 below, then use these IP-specific certificate steps instead of step 6:
+This is an IP address, so DNS/domain ownership is not required for the IP-certificate option. First confirm this is still your instance's public address and preferably associate an Elastic IP to keep it stable. If it changes, update the Nginx configuration and obtain a certificate for the new address. Run initial setup steps 2â€“5 below, then use these IP-specific certificate steps instead of step 6:
 
 Use Certbot **5.4 or newer**; Ubuntu's apt package may be older. The Ubuntu snap installation is `sudo snap install --classic certbot` (use `sudo snap refresh certbot` if already installed). Confirm `/snap/bin/certbot --version`. Use that executable consistently rather than an older apt copy. Check the snap renewal timer is active.
 
 ```bash
-cd /opt/noticeboard-tracker
+cd ~/noticeboard
 python3.12 deploy/render_nginx.py 13.219.9.139 --http-only | sudo tee /etc/nginx/conf.d/noticeboard.conf >/dev/null
 sudo nginx -t
 sudo systemctl reload nginx
@@ -36,13 +36,13 @@ If PostgreSQL runs on this same EC2 instance, set PG_HOST=127.0.0.1 in backend.e
 
 1. Point a domain's DNS A record to the instance's Elastic IP. Only add an AAAA record if IPv6 is configured. Allow inbound 443 and 80 (certificate issuance/renewal and HTTPS redirect); restrict SSH to your administrative source. Do not expose 8000 or 5173. Restrict PostgreSQL 5432 to approved application/admin sources. If PostgreSQL is on this same instance, use 127.0.0.1, not its public IP.
 2. Install Python 3.12, venv, Node.js 22 LTS with npm, Nginx, Certbot (5.4+ for IP certificates), Git and curl. On Ubuntu 24.04 the non-Node packages can be installed with `sudo apt-get update` and `sudo apt-get install python3.12-venv nginx git curl`. Install Node using your chosen trusted Node distribution; verify `node --version` and `npm --version`. Enable Nginx with `sudo systemctl enable --now nginx`.
-3. Clone this repository to `/opt/noticeboard-tracker` as your deployment/SSH user. That user owns the checkout and .venv; the service account must not own/write the code. Give the service account read/traverse access to the checkout (normal 755 directories and 644 source files). Do not put secrets inside it. Create the service account and directories:
+3. Use your existing `~/noticeboard` checkout (or clone to a directory owned by your deployment/SSH user). The update script detects its checkout location. That user owns the checkout and .venv; the service account must not own/write the code. Give the service account read/traverse access to the checkout (normal 755 directories and 644 source files). Do not put secrets inside it. Create the service account and directories:
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin noticeboard
 sudo install -d -m 750 -o root -g noticeboard /etc/noticeboard
 sudo install -d -m 755 /var/www/noticeboard/releases /var/www/letsencrypt
-cd /opt/noticeboard-tracker
+cd ~/noticeboard
 sudo install -m 600 -o root -g root deploy/backend.env.example /etc/noticeboard/backend.env
 sudoedit /etc/noticeboard/backend.env
 ```
@@ -52,12 +52,20 @@ Run useradd only if that account does not exist. Set real values in backend.env.
 For remote PostgreSQL, install the correct CA certificate at PGSSLROOTCERT with read access for noticeboard, and set PG_SSLMODE=verify-full with a matching PG_HOST certificate name. For a database strictly on loopback you can explicitly set PG_SSLMODE=disable if TLS is not configured and omit PGSSLROOTCERT. This only affects the local database connection, never browser HTTPS. The service startup check rejects remote non-verified TLS and unset/example secrets. One Uvicorn worker is configured, so memory rate limiting works per instance but resets on restart; use shared Redis before scaling.
 
 4. Verify the existing DB schema/grants. This repository still lacks the earlier SQL baseline/migrations referenced in README. Preserve/export your actual schema and have the DB admin apply reviewed missing changes; the update script deliberately does not invent or automatically run migrations. A working current DB is required for login and business actions.
-5. Install the backend service and build/start the app:
+5. For your `/home/ubuntu/noticeboard` checkout, Ubuntu may prevent the service user from traversing `/home/ubuntu`. Grant that user traversal only, without making the home directory publicly readable:
 
 ```bash
-sudo install -m 644 deploy/noticeboard.service /etc/systemd/system/noticeboard.service
-sudo systemctl daemon-reload
-sudo systemctl enable noticeboard
+sudo apt-get install acl
+sudo setfacl -m u:noticeboard:--x /home/ubuntu
+sudo -u noticeboard test -r /home/ubuntu/noticeboard/backend/main.py
+```
+
+The checkout itself must have normal readable files/traversable directories. Keep secrets in the root-only `/etc/noticeboard/backend.env`. `install-service.sh` checks source readability and renders WorkingDirectory and Python executable paths for the actual checkout. Its generated service uses ProtectHome=read-only so it can read the home-based checkout; filesystem writes remain prohibited by ProtectSystem=strict. Reinstall the service if you move the checkout. Do not install the static `/opt` example service directly for a home checkout.
+
+Install the backend service and build/start the app:
+
+```bash
+bash deploy/install-service.sh
 bash deploy/update.sh
 ```
 
@@ -83,7 +91,7 @@ Bootstrap serves only the ACME challenge over HTTP; it does not expose the login
 Commit/push the local changes first so EC2 can pull them. On EC2, as the checkout owner:
 
 ```bash
-cd /opt/noticeboard-tracker
+cd ~/noticeboard
 git pull --ff-only
 bash deploy/update.sh
 python3.12 deploy/smoke.py https://13.219.9.139
