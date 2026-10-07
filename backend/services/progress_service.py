@@ -1,5 +1,6 @@
 from psycopg2.extras import RealDictCursor
 from database import get_connection
+from services.workflow_notifications import notify_progress
 from contextlib import closing
 
 
@@ -31,6 +32,8 @@ def create_progress_report(trainee_id, plan_id, status, comments, user_id):
                 RETURNING id;
             """, (plan_id, status, comments, trainee_id, user_id, plan_id))
             row = cursor.fetchone()
+            if row:
+                notify_progress(cursor, plan_id, user_id, status)
             return row[0] if row else None
 
 

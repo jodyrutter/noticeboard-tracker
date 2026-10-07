@@ -83,3 +83,7 @@ class CohortMembersUpdate(BaseModel):
         if any(i <= 0 for i in self.add + self.remove):
             raise ValueError("Trainee IDs must be positive")
         return self
+
+
+class PlanAssignmentsUpdate(CohortMembersUpdate):
+    pass

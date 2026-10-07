@@ -249,7 +249,7 @@ function PlanDetails({
         )}
         {mode === "assigned" && (
           <div className="success-box" role="status">
-            Plan assigned successfully.
+            Assignments saved successfully.
           </div>
         )}
         {mode === "report" && (
@@ -316,52 +316,172 @@ function PlanDetails({
 }
 
 function AssignPlan({ plan, done }: { plan: Plan; done: () => void }) {
-  const [target, setTarget] = useState("trainee");
-  const trainees = useResource<Trainee[]>("/trainees"),
-    cohorts = useResource<Cohort[]>("/cohorts");
-  const data = target === "trainee" ? trainees : cohorts;
+  const trainees = useResource<Trainee[]>("/trainees");
+  const cohorts = useResource<Cohort[]>("/cohorts");
+  const assignments = useResource<{ trainee_ids: number[] }>(
+    `/plans/${plan.id}/assignments`,
+  );
+  return (
+    <State {...assignments} retry={assignments.refresh}>
+      <State {...trainees} retry={trainees.refresh}>
+        <State {...cohorts} retry={cohorts.refresh}>
+          {assignments.data && trainees.data && cohorts.data && (
+            <AssignmentEditor
+              plan={plan}
+              done={done}
+              trainees={trainees.data}
+              cohorts={cohorts.data}
+              initial={assignments.data.trainee_ids}
+            />
+          )}
+        </State>
+      </State>
+    </State>
+  );
+}
+
+function AssignmentEditor({
+  plan,
+  done,
+  trainees,
+  cohorts,
+  initial,
+}: {
+  plan: Plan;
+  done: () => void;
+  trainees: Trainee[];
+  cohorts: Cohort[];
+  initial: number[];
+}) {
+  const [selected, setSelected] = useState(initial);
+  const [target, setTarget] = useState<"trainee" | "cohort">("trainee");
+  const [queries, setQueries] = useState({ trainee: "", cohort: "" });
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const add = selected.filter((id) => !initial.includes(id));
+  const remove = initial.filter((id) => !selected.includes(id));
   const options =
     target === "trainee"
-      ? trainees.data?.map((t) => ({
-          value: t.id,
-          label: `${t.name || `Trainee #${t.id}`} · ${t.cohort_name || "No cohort"}`,
+      ? trainees.map((t) => ({
+          id: t.id,
+          label: t.name || t.email,
+          detail: t.email,
+          ids: [t.id],
         }))
-      : cohorts.data?.map((c) => ({ value: c.id, label: c.name }));
+      : cohorts.map((c) => ({
+          id: c.id,
+          label: c.name,
+          detail: "Current cohort members",
+          ids: trainees.filter((t) => t.cohort_id === c.id).map((t) => t.id),
+        }));
+  const matches = options.filter((o) =>
+    `${o.label} ${o.detail}`
+      .toLowerCase()
+      .includes(queries[target].toLowerCase()),
+  );
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.patch(`/plans/${plan.id}/assignments`, { add, remove });
+      done();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="detail-content">
-      <p>Assign this plan to one person or everyone currently in a cohort.</p>
+      <p>
+        Checked people already have this plan or will receive it when you save.
+        Uncheck to remove the assignment. Existing progress reports are kept.
+      </p>
       <div className="segmented">
         <button
+          disabled={busy}
           className={target === "trainee" ? "active" : ""}
           onClick={() => setTarget("trainee")}
         >
-          One trainee
+          Trainees
         </button>
         <button
+          disabled={busy}
           className={target === "cohort" ? "active" : ""}
           onClick={() => setTarget("cohort")}
         >
           Entire cohort
         </button>
       </div>
-      <State {...data} retry={data.refresh} empty={!options?.length}>
-        <RecordForm
-          key={target}
-          fields={[
-            {
-              name: "target",
-              label: target === "trainee" ? "Trainee" : "Cohort",
-              required: true,
-              options: options ?? [],
-            },
-          ]}
-          label="Assign plan"
-          submit={(v) =>
-            api.post(`/plans/${plan.id}/assign/${target}/${v.target}`, {})
-          }
-          done={done}
+      <p>
+        {selected.length} trainees selected · {add.length} to add ·{" "}
+        {remove.length} to remove
+      </p>
+      {target === "cohort" && (
+        <p>
+          A cohort checkbox selects or clears all its current members, including
+          individually assigned people. A dash means only some members are
+          selected.
+        </p>
+      )}
+      <details className="member-picker" key={target} open>
+        <summary>
+          Choose {target === "trainee" ? "trainees" : "cohorts"}
+        </summary>
+        <Search
+          value={queries[target]}
+          onChange={(query) => setQueries((q) => ({ ...q, [target]: query }))}
+          placeholder={`Search ${target === "trainee" ? "trainees" : "cohorts"} to assign…`}
         />
-      </State>
+        <div className="member-options">
+          {matches.map((o) => {
+            const checked =
+              o.ids.length > 0 && o.ids.every((id) => selected.includes(id));
+            const partial =
+              !checked && o.ids.some((id) => selected.includes(id));
+            return (
+              <label className="member-option" key={o.id}>
+                <input
+                  type="checkbox"
+                  ref={(node) => {
+                    if (node) node.indeterminate = partial;
+                  }}
+                  checked={checked}
+                  disabled={busy || !o.ids.length}
+                  onChange={(e) => {
+                    setError("");
+                    setSelected((ids) =>
+                      e.target.checked
+                        ? [...new Set([...ids, ...o.ids])]
+                        : ids.filter((id) => !o.ids.includes(id)),
+                    );
+                  }}
+                />
+                <span>
+                  <strong>{o.label}</strong>
+                  <small>
+                    {o.detail}
+                    {!o.ids.length ? " · No members" : ""}
+                  </small>
+                </span>
+              </label>
+            );
+          })}
+          {!matches.length && <p>No matching records.</p>}
+        </div>
+      </details>
+      {error && <ErrorBox error={error} />}
+      <footer>
+        <button
+          className="button primary"
+          disabled={busy || (!add.length && !remove.length)}
+          onClick={() => void save()}
+        >
+          {busy ? "Saving…" : "Save assignments"}
+          <Icon name="arrow" />
+        </button>
+      </footer>
     </div>
   );
 }

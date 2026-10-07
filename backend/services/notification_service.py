@@ -56,3 +56,10 @@ def mark_notification_as_read(notification_id, user_id):
                 WHERE id = %s AND user_id = %s RETURNING id;
             """, (notification_id, user_id))
             return cursor.fetchone() is not None
+
+
+def get_unread_count(user_id):
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM notifications WHERE user_id = %s AND is_read = FALSE;", (user_id,))
+            return cursor.fetchone()[0]

@@ -77,3 +77,57 @@ not the absence of a trainee profile. Status fields now use the explicit enum
 values in the API. These controls, the promotion API, and status constraints are
 new AI-written additions. Apply migration 004 as a database admin before using
 role changes so `noticeboard_app` can update the role column.
+
+
+## Assignment and refresh fixes
+
+HR can manage membership from **Cohorts → View cohort → Choose members**.
+The searchable dropdown shows checkboxes beside names and emails. Existing members
+start checked. Select or clear people, then choose **Save members**. Selecting a
+person from another cohort moves them into this cohort; removing someone does not
+remove their existing plan assignments. Changes are saved together through the
+HR-only `PATCH /cohorts/{cohort_id}/members` endpoint using add/remove trainee IDs.
+
+Assigning a plan twice to the same trainee now returns a clear 409 message instead
+of an unhandled database error. Cohort plan assignment continues to skip existing
+assignments. Assignment transactions close their connections on success and error.
+
+Returning to the browser checks the current account at most once per minute.
+Revalidation retains loaded data and keeps open forms mounted. Concurrent identical
+reads share an in-flight request within the same authenticated session. Session
+expiry and rejected-token handling remain active. These fixes, the cohort member
+picker and endpoint, and their regression tests are new AI-written code built on
+the existing forms, services and authentication. No new database migration is
+needed for these fixes; existing trainee UPDATE permission is required.
+
+
+
+## Editing saved plan assignments
+
+**Training plans → View plan → Assign** loads existing assignments as checked
+trainees. Multiple trainees can be checked or unchecked, and selections survive
+switching to **Entire cohort**. A cohort is checked if all its current members are
+selected, and shows a dash for a partial selection. Checking/unchecking a cohort
+selects/clears all current members, including individually assigned people; the
+schema does not track a separate cohort assignment source.
+
+**Save assignments** sends only added/removed trainee IDs in one transaction.
+Existing selections are not inserted again. Submitted progress reports are kept.
+Failures leave the selections in place for retry. GET and PATCH
+`/plans/{plan_id}/assignments` both require MANAGER. Additions are idempotent,
+and unrelated changes from another manager are not overwritten by a full-list
+replacement. Run `backend/migrations/005_assignment_removal_permissions.sql` as
+a database admin to grant DELETE on plan_assignments if not already granted.
+
+The saved-assignment query, transactional editing service, request schema, UI
+selection logic and regression tests are new AI-written code built on the
+existing assignment tables, role dependency and checkbox styles.
+
+
+The manager overview now includes **Who needs attention?** with latest assignment
+status, overdue/missing reports and active trainees without plans. The notification
+bell displays an owner-scoped unread count, refreshed every minute while visible.
+Enrollment, assignment/removal, plan edits and submitted progress create in-app
+notifications in the backend. Apply migration 006 first. See
+[deployment readiness](../DEPLOYMENT_READINESS.md) for recipient rules, validation,
+and limitations. These workflow additions and tests are new AI-written code.

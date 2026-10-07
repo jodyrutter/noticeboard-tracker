@@ -1,4 +1,5 @@
 from database import get_connection
+from services.workflow_notifications import notify_plan_update
 from contextlib import closing
 from psycopg2.errors import ForeignKeyViolation
 from psycopg2.extras import RealDictCursor
@@ -27,12 +28,17 @@ def get_plan(plan_id, user_id=None):
 def update_plan(plan_id, title, description, due_date):
     with closing(get_connection()) as connection, connection:
         with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM plans WHERE id = %s FOR UPDATE;", (plan_id,))
+            if cursor.fetchone() is None:
+                return None
             cursor.execute("""
                 UPDATE plans SET title = %s, description = %s, due_date = %s
-                WHERE id = %s RETURNING id;
-            """, (title, description, due_date, plan_id))
-            row = cursor.fetchone()
-            return row[0] if row else None
+                WHERE id = %s AND (title, description, due_date) IS DISTINCT FROM (%s, %s, %s)
+                RETURNING id;
+            """, (title, description, due_date, plan_id, title, description, due_date))
+            if cursor.fetchone() is not None:
+                notify_plan_update(cursor, plan_id)
+            return plan_id
 
 
 def delete_plan(plan_id):

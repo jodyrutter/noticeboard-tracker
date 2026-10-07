@@ -17,6 +17,7 @@ export function Notifications({ user }: { user: User }) {
     try {
       await api.put(`/notifications/${id}/read`, {});
       resource.refresh();
+      window.dispatchEvent(new Event("noticeboard:notifications-changed"));
     } catch (e) {
       setError((e as Error).message);
     } finally {

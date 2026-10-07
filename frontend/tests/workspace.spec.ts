@@ -108,6 +108,40 @@ async function setup(page: Page, role = "MANAGER", signedIn = true) {
         email: "alex@example.com",
         role,
       },
+      "/notifications/8/unread-count": { unread: 1 },
+      "/dashboard/tracking": {
+        summary: {
+          total_assignments: 1,
+          COMPLETED: 0,
+          BLOCKED: 1,
+          overdue: 1,
+          missing_reports: 0,
+          unassigned_trainees: 1,
+        },
+        assignments: [
+          {
+            trainee_id: 7,
+            name: "Alex Morgan",
+            email: "alex@example.com",
+            cohort: "Autumn engineering",
+            plan_id: 3,
+            title: "Foundations",
+            due_date: "2026-01-01",
+            status: "BLOCKED",
+            last_report_at: "2026-01-02",
+            missing_report: false,
+            overdue: true,
+          },
+        ],
+        unassigned_trainees: [
+          {
+            trainee_id: 11,
+            name: "Sam Chen",
+            email: "sam@example.com",
+            cohort: null,
+          },
+        ],
+      },
       "/dashboard": {
         total_trainees: 24,
         active_trainees: 21,
@@ -131,6 +165,7 @@ async function setup(page: Page, role = "MANAGER", signedIn = true) {
       ],
       "/plans": plans,
       "/plans/3": plan,
+      "/plans/3/assignments": { trainee_ids: [] },
       "/cohorts": [
         {
           id: 1,
@@ -209,11 +244,17 @@ test("manager overview, create, assign, edit and protected deletion", async ({
     .getByRole("button", { name: `Open ${plan.title}`, exact: true })
     .click();
   await page.getByRole("button", { name: "Assign", exact: true }).click();
-  await page.getByLabel("Trainee", { exact: true }).selectOption("7");
-  await page.getByRole("button", { name: "Assign plan", exact: true }).click();
-  await expect(page.getByText("Plan assigned successfully.")).toBeVisible();
+  await page.getByRole("checkbox", { name: /Alex Morgan/ }).check();
+  await page
+    .getByRole("button", { name: "Save assignments", exact: true })
+    .click();
+  await expect(page.getByText("Assignments saved successfully.")).toBeVisible();
   expect(
-    writes.some((w) => w.path === "/plans/3/assign/trainee/7"),
+    writes.some(
+      (w) =>
+        w.path === "/plans/3/assignments" &&
+        JSON.stringify(w.body.add) === "[7]",
+    ),
   ).toBeTruthy();
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Plan title").fill("Revised plan");
@@ -326,12 +367,16 @@ test("trainee progress, own notifications, profile and logout", async ({
     comments: "Completed the exercises.",
   });
   await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("link", { name: "Notifications", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open notifications", exact: true })
+    .click();
   await page.getByRole("button", { name: "Mark read", exact: true }).click();
   await expect
     .poll(() => writes.some((w) => w.path === "/notifications/6/read"))
     .toBeTruthy();
-  await page.getByRole("link", { name: "My account", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open my account", exact: true })
+    .click();
   await expect(page.getByText("#8", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(
@@ -377,7 +422,9 @@ test("mobile navigation and no horizontal overflow", async ({ page }) => {
     ),
   ).toBeTruthy();
   await page.getByRole("button", { name: "Toggle navigation" }).click();
-  await page.getByRole("link", { name: "My account", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open my account", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name: "My account" })).toBeVisible();
 });
 
@@ -401,7 +448,9 @@ test("API errors, retry and session rejection", async ({ page }) => {
   await page.route("**/backend/notifications/8", (route) =>
     route.fulfill({ status: 401, json: { detail: "Expired" } }),
   );
-  await page.getByRole("link", { name: "Notifications", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open notifications", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Welcome back." }),
   ).toBeVisible();
@@ -623,20 +672,152 @@ test("focus revalidation preserves open forms and throttles repeated focus", asy
   expect(checks).toBe(1);
 });
 
-test("duplicate plan assignment displays useful conflict", async ({ page }) => {
-  await setup(page, "MANAGER");
-  await page.route("**/backend/plans/3/assign/trainee/7", (route) =>
-    route.fulfill({
-      status: 409,
-      json: { detail: "This plan is already assigned to this trainee." },
-    }),
-  );
+test("existing assignments are checked and can be removed without duplicate errors", async ({
+  page,
+}) => {
+  const writes = await setup(page, "MANAGER");
+  let assigned = [7, 9];
+  await page.route("**/backend/plans/3/assignments", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({ json: { trainee_ids: assigned } });
+    const body = route.request().postDataJSON();
+    writes.push({ path: "/plans/3/assignments", method: "PATCH", body });
+    assigned = [
+      ...new Set([
+        ...assigned.filter((id) => !body.remove.includes(id)),
+        ...body.add,
+      ]),
+    ];
+    return route.fulfill({ json: { trainee_ids: assigned } });
+  });
   await page.goto("/app/plans");
   await page
     .getByRole("button", { name: `Open ${plan.title}`, exact: true })
     .click();
   await page.getByRole("button", { name: "Assign", exact: true }).click();
-  await page.getByLabel("Trainee", { exact: true }).selectOption("7");
-  await page.getByRole("button", { name: "Assign plan", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("already assigned");
+  await expect(
+    page.getByRole("checkbox", { name: /Alex Morgan/ }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: /Jamie Rivera/ }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("button", { name: "Save assignments" }),
+  ).toBeDisabled();
+  await page.getByRole("checkbox", { name: /Alex Morgan/ }).uncheck();
+  await page.getByRole("checkbox", { name: /Sam Chen/ }).check();
+  await page.getByRole("button", { name: "Entire cohort" }).click();
+  await expect(
+    page.getByRole("checkbox", { name: /Autumn engineering/ }),
+  ).toHaveJSProperty("indeterminate", true);
+  await page.getByRole("button", { name: "Trainees", exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: /Alex Morgan/ }),
+  ).not.toBeChecked();
+  await page.getByRole("button", { name: "Save assignments" }).click();
+  await expect(page.getByText("Assignments saved successfully.")).toBeVisible();
+  expect(writes.find((w) => w.path === "/plans/3/assignments")?.body).toEqual({
+    add: [11],
+    remove: [7],
+  });
+  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: /Alex Morgan/ }),
+  ).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /Sam Chen/ })).toBeChecked();
+});
+
+test("unchecking a cohort removes its assigned members and failed save preserves edits", async ({
+  page,
+}) => {
+  await setup(page, "MANAGER");
+  let fail = true;
+  const bodies: unknown[] = [];
+  await page.route("**/backend/plans/3/assignments", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({ json: { trainee_ids: [7, 9] } });
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill(
+      fail
+        ? { status: 500, json: { detail: "Unavailable" } }
+        : { json: { trainee_ids: [] } },
+    );
+  });
+  await page.goto("/app/plans");
+  await page
+    .getByRole("button", { name: `Open ${plan.title}`, exact: true })
+    .click();
+  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  await page.getByRole("button", { name: "Entire cohort" }).click();
+  await expect(
+    page.getByRole("checkbox", { name: /Autumn engineering/ }),
+  ).toBeChecked();
+  await page.getByRole("checkbox", { name: /Autumn engineering/ }).uncheck();
+  await page.getByRole("button", { name: "Save assignments" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: /Autumn engineering/ }),
+  ).not.toBeChecked();
+  fail = false;
+  await page.getByRole("button", { name: "Save assignments" }).click();
+  await expect(page.getByText("Assignments saved successfully.")).toBeVisible();
+  expect(bodies).toEqual([
+    { add: [], remove: [7, 9] },
+    { add: [], remove: [7, 9] },
+  ]);
+});
+
+test("HR cannot edit their own role but can edit another account", async ({
+  page,
+}) => {
+  await setup(page, "HR");
+  await page.route("**/backend/users/promotion", (route) =>
+    route.fulfill({
+      json: {
+        staff: [
+          {
+            user_id: 8,
+            name: "Alex Morgan",
+            email: "alex@example.com",
+            role: "HR",
+          },
+          {
+            user_id: 9,
+            name: "Other HR",
+            email: "other@example.com",
+            role: "HR",
+          },
+        ],
+        eligible: [],
+      },
+    }),
+  );
+  await page.goto("/app/promotion");
+  await expect(
+    page.getByRole("button", { name: "Change role for alex@example.com" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("Your account — another HR user must change your role."),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Change role for other@example.com" })
+    .click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("manager tracking shows latest state and filters overdue work", async ({
+  page,
+}) => {
+  await setup(page, "MANAGER");
+  await page.goto("/app/overview");
+  await expect(
+    page.getByRole("heading", { name: "Who needs attention?" }),
+  ).toBeVisible();
+  await page.getByLabel("Tracking filter").selectOption("overdue");
+  await expect(
+    page.getByRole("row").filter({ hasText: "Foundations" }),
+  ).toContainText("blocked");
+  await page.getByLabel("Tracking filter").selectOption("COMPLETED");
+  await expect(page.getByText("No matching assignments.")).toBeVisible();
+  await expect(page.getByLabel("1 unread notifications")).toBeVisible();
 });

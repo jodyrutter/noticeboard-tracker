@@ -4,13 +4,7 @@ import { useResource } from "../hooks";
 import type { User } from "../types/models";
 import { Badge, Modal, RecordForm, Search, State } from "../components/UI";
 
-export function Promotion({
-  user,
-  profileChanged,
-}: {
-  user: User;
-  profileChanged: () => void;
-}) {
+export function Promotion({ user }: { user: User }) {
   const resource = useResource<{ staff: User[]; eligible: User[] }>(
     "/users/promotion",
   );
@@ -73,10 +67,17 @@ export function Promotion({
                           <button
                             className="text-button"
                             aria-label={`Change role for ${u.email}`}
+                            disabled={u.user_id === user.user_id}
                             onClick={() => setSelected(u)}
                           >
                             Change role
                           </button>
+                          {u.user_id === user.user_id && (
+                            <small className="muted">
+                              Your account — another HR user must change your
+                              role.
+                            </small>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -90,17 +91,11 @@ export function Promotion({
           );
         })}
       </State>
-      {selected && (
+      {selected && selected.user_id !== user.user_id && (
         <Modal
           title={`Change role: ${selected.email}`}
           close={() => setSelected(null)}
         >
-          {selected.user_id === user.user_id && (
-            <p className="panel-note">
-              Changing your own role away from HR removes your access to this
-              page.
-            </p>
-          )}
           <RecordForm
             fields={[
               {
@@ -120,10 +115,8 @@ export function Promotion({
               api.patch(`/users/${selected.user_id}/role`, { role: v.role })
             }
             done={() => {
-              const own = selected.user_id === user.user_id;
               setSelected(null);
               resource.refresh();
-              if (own) profileChanged();
             }}
           />
         </Modal>

@@ -68,6 +68,7 @@ def create_trainee(id_user, id_cohort, trainee_status, user_onboarding_date):
                 row = cursor.fetchone()
                 if row is None:
                     raise InvalidTraineeUserError
+                cursor.execute("INSERT INTO notifications (user_id, message) VALUES (%s, %s);", (id_user, "Your trainee profile is ready. Assigned training plans will appear in My learning plans."))
                 return row[0]
     except ForeignKeyViolation as exc:
         raise InvalidCohortError from exc

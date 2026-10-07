@@ -10,7 +10,7 @@ from auth import CurrentUser, HRUser, ManagerUser, TraineeUser, StaffUser
 
 from services.personal_service import get_own_trainee, get_own_cohort, get_own_progress, MultipleTraineeRecordsError
 
-from schemas import CohortMembersUpdate, RoleUpdate, TraineeReplace, TraineeUpdate, TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
+from schemas import PlanAssignmentsUpdate, CohortMembersUpdate, RoleUpdate, TraineeReplace, TraineeUpdate, TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
 
 from services.trainee_service import (
     get_all_trainees, get_unenrolled_users, TraineeAlreadyExistsError,
@@ -26,14 +26,14 @@ from services.plan_service import (
 )
 from services.assignment_service import (
     assign_plan_to_trainee, AlreadyAssignedError, AssignmentReferenceError,
-    assign_plan_to_cohort
+    assign_plan_to_cohort, get_plan_assignments, update_plan_assignments
 )
 from services.progress_service import (
     create_progress_report,
     get_progress_by_trainee, get_progress_by_plan
 )
 from services.notification_service import (
-    get_notifications_by_user,
+    get_notifications_by_user, get_unread_count,
     mark_notification_as_read
 )
 from services.dashboard_service import (
@@ -41,6 +41,7 @@ from services.dashboard_service import (
     get_trainee_overview
 )
 
+from services.tracking_service import get_tracking
 from services.promotion_service import get_promotion_users, update_user_role, AssignedTrainingError
 
 app = FastAPI(title="Noticeboard Tracker", version="0.1.0")
@@ -67,6 +68,8 @@ def promotion_users(current_user: HRUser):
 
 @app.patch("/users/{user_id}/role")
 def change_user_role(user_id: int, body: RoleUpdate, current_user: HRUser):
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=403, detail="You cannot change your own role. Ask another HR user to make this change.")
     user = update_user_role(user_id, body.role)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -112,12 +115,24 @@ def trainee_progress(trainee_id: int, current_user: CurrentUser):
     progress = get_progress_by_trainee(trainee_id)
     return progress
 
+@app.get("/notifications/{user_id}/unread-count")
+def unread_notifications(user_id: int, current_user: CurrentUser):
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="You can only view your own notifications")
+    return {"unread": get_unread_count(user_id)}
+
+
 @app.get("/notifications/{user_id}")
 def user_notifications(user_id: int, current_user: CurrentUser):
     if user_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="You can only view your own notifications")
     notifications = get_notifications_by_user(user_id)
     return notifications
+
+@app.get("/dashboard/tracking")
+def tracking(current_user: ManagerUser):
+    return get_tracking()
+
 
 @app.get("/dashboard")
 def dashboard(current_user: ManagerUser):
@@ -167,6 +182,22 @@ async def already_assigned(request: Request, exc: AlreadyAssignedError):
 @app.exception_handler(AssignmentReferenceError)
 async def invalid_assignment_reference(request: Request, exc: AssignmentReferenceError):
     return JSONResponse(status_code=404, content={"detail": "The plan or assignment target no longer exists. Refresh and try again."})
+
+
+@app.get("/plans/{plan_id}/assignments")
+def plan_assignments(plan_id: int, current_user: ManagerUser):
+    ids = get_plan_assignments(plan_id)
+    if ids is None:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"trainee_ids": ids}
+
+
+@app.patch("/plans/{plan_id}/assignments")
+def edit_plan_assignments(plan_id: int, body: PlanAssignmentsUpdate, current_user: ManagerUser):
+    ids = update_plan_assignments(plan_id, body.add, body.remove)
+    if ids is None:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"trainee_ids": ids}
 
 
 @app.post("/plans/{plan_id}/assign/trainee/{trainee_id}", status_code=201)

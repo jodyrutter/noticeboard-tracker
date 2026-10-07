@@ -1871,3 +1871,8 @@ dialog > .success-box {
   color: #657777;
   margin-top: 3px;
 }
+
+.notification-bell { position: relative; }
+.notification-bell svg { flex-shrink: 0; }
+.notification-bell .badge { position: absolute; right: -8px; top: -6px; padding: 2px 5px; min-width: 18px; font-size: 10px; background: #ecb67b; color: #183b36; }
+.tracking-section h3 { margin-top: 28px; margin-bottom: 12px; }

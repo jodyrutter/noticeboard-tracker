@@ -203,9 +203,9 @@ membership alone does not exclude someone. Completed plan assignments still coun
 as assignments. Both lists include only public account fields. Both this route
 and `PATCH /users/{user_id}/role` require HR. Role changes accept TRAINEE, HR or
 MANAGER, recheck assignments, and return 409 if training is assigned. Users can
-return to TRAINEE without losing their existing profile. Self-demotion is allowed;
-the UI refreshes the current user's permissions after saving. There is no last-HR
-restriction, so a DB admin may be needed if all HR accounts are demoted.
+return to TRAINEE without losing their existing profile. Users cannot change their own role. Their Promotion action is disabled, and
+the API returns 403 before calling the update service. Another HR user must
+make the role change.
 
 Run `backend/migrations/004_status_values_and_promotion.sql` once as a DB admin.
 It adds CHECK constraints for the two status fields and grants the app user
@@ -218,3 +218,19 @@ This assumes staff do not receive training assignments, as requested.
 The status definitions, Promotion service/routes/page, SQL script, dashboard
 NOT_STARTED count, and added tests are new AI-written code using the existing
 HR dependency, account roles, service connection patterns and shared forms.
+
+
+Managers can now read and edit saved plan assignments using GET/PATCH
+`/plans/{plan_id}/assignments`. PATCH takes `add` and `remove` lists of trainee
+IDs, changes only these links in a transaction, and preserves progress reports.
+Existing assignments are prechecked in the UI and can be unchecked. Apply
+`backend/migrations/005_assignment_removal_permissions.sql` as a DB admin to
+allow the application to delete assignment links. This service, schema, UI
+change, permission script and tests are new AI-written code.
+
+The self-role-change guard and its UI/API tests are new AI-written changes.
+
+
+See [business workflow and deployment readiness](DEPLOYMENT_READINESS.md) for
+the new automatic in-app notifications, Manager tracking API, migration 006,
+local acceptance walkthrough, and remaining AWS release checks.

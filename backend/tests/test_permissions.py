@@ -12,6 +12,10 @@ from services import auth_service, trainee_service, plan_service, progress_servi
 
 
 ROUTES = [
+    ("GET", "/dashboard/tracking", None, {"MANAGER"}, 200),
+    ("GET", "/notifications/8/unread-count", None, {"HR", "MANAGER", "TRAINEE"}, 200),
+    ("GET", "/plans/3/assignments", None, {"MANAGER"}, 200),
+    ("PATCH", "/plans/3/assignments", {"add": [7], "remove": []}, {"MANAGER"}, 200),
     ("PATCH", "/cohorts/1/members", {"add": [7], "remove": []}, {"HR"}, 200),
     ("GET", "/users/promotion", None, {"HR"}, 200),
     ("PATCH", "/users/9/role", {"role": "MANAGER"}, {"HR"}, 200),
@@ -64,7 +68,7 @@ def client():
 @pytest.fixture
 def services(monkeypatch):
     names = [
-        "update_cohort_members", "get_promotion_users", "update_user_role", "get_unenrolled_users", "get_own_trainee", "get_own_cohort", "get_own_progress",
+        "get_tracking", "get_unread_count", "get_plan_assignments", "update_plan_assignments", "update_cohort_members", "get_promotion_users", "update_user_role", "get_unenrolled_users", "get_own_trainee", "get_own_cohort", "get_own_progress",
         "get_trainee", "get_cohort", "get_plan", "update_plan", "delete_plan", "get_progress_by_plan",
         "get_all_trainees", "get_all_cohorts", "get_all_plans", "get_assigned_plans",
         "get_progress_by_trainee", "get_notifications_by_user", "get_dashboard_summary",
@@ -330,9 +334,9 @@ def test_plan_edit_sql_changes_only_editable_fields(db):
     connection, cursor = db
     cursor.fetchone.return_value = (3,)
     assert plan_service.update_plan(3, "SQL", None, None) == 3
-    sql, params = cursor.execute.call_args.args
+    sql, params = cursor.execute.call_args_list[1].args
     assert "created_by" not in sql
-    assert params == ("SQL", None, None, 3)
+    assert params == ("SQL", None, None, 3, "SQL", None, None)
     connection.close.assert_called_once()
 
 
@@ -499,7 +503,7 @@ def test_enrollment_of_available_user(db):
     connection, cursor = db
     cursor.fetchone.side_effect = [(8,), None, (7,)]
     assert trainee_service.create_trainee(8, None, "ACTIVE", "2026-10-06") == 7
-    assert cursor.execute.call_args.args[1] == (None, "ACTIVE", "2026-10-06", 8)
+    assert cursor.execute.call_args_list[-2].args[1] == (None, "ACTIVE", "2026-10-06", 8)
 
 
 def test_duplicate_enrollment_returns_conflict(client, user, services):
@@ -579,3 +583,34 @@ def test_assignment_conflicts_are_explained(client, user, services):
     assert "already assigned" in response.json()["detail"]
     services["assign_plan_to_trainee"].side_effect = AssignmentReferenceError
     assert client.post("/plans/3/assign/trainee/7").status_code == 404
+
+
+def test_assignment_editor_contract(client, user, services):
+    user.role = "MANAGER"
+    services["get_plan_assignments"].return_value = [7,9]
+    assert client.get("/plans/3/assignments").json() == {"trainee_ids":[7,9]}
+    services["update_plan_assignments"].return_value = [9,11]
+    assert client.patch("/plans/3/assignments",json={"add":[11],"remove":[7]}).json() == {"trainee_ids":[9,11]}
+    services["update_plan_assignments"].assert_called_once_with(3,[11],[7])
+    assert client.patch("/plans/3/assignments",json={"add":[7],"remove":[7]}).status_code == 422
+    services["get_plan_assignments"].return_value = None
+    assert client.get("/plans/3/assignments").status_code == 404
+    services["update_plan_assignments"].return_value = None
+    assert client.patch("/plans/3/assignments",json={"remove":[7]}).status_code == 404
+
+
+@pytest.mark.parametrize("role", ["HR", "MANAGER", "TRAINEE"])
+def test_hr_cannot_change_own_role(client, user, services, role):
+    user.role = "HR"
+    response = client.patch(f"/users/{user.user_id}/role", json={"role":role})
+    assert response.status_code == 403
+    assert "cannot change your own role" in response.json()["detail"]
+    services["update_user_role"].assert_not_called()
+
+
+def test_unread_count_is_owner_only(client, user, services):
+    assert client.get("/notifications/9/unread-count").status_code == 403
+    services["get_unread_count"].assert_not_called()
+    services["get_unread_count"].return_value = 2
+    assert client.get("/notifications/8/unread-count").json() == {"unread":2}
+    services["get_unread_count"].assert_called_once_with(8)

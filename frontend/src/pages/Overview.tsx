@@ -1,3 +1,4 @@
+import { Tracking } from "./Tracking";
 import { useResource } from "../hooks";
 import type { Summary, User } from "../types/models";
 import { Badge, Icon, State } from "../components/UI";
@@ -193,6 +194,7 @@ export function Overview({
           </State>
         </section>
       </div>
+      <Tracking />
     </>
   );
 }

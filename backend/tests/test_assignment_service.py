@@ -27,7 +27,7 @@ def test_new_assignment(db):
     connection, cursor = db
     cursor.fetchone.return_value = (12,)
     assert service.assign_plan_to_trainee(1,6) == 12
-    assert cursor.execute.call_args.args[1] == (1,6)
+    assert cursor.execute.call_args_list[0].args[1] == (1,6)
     connection.close.assert_called_once()
 
 
@@ -66,3 +66,34 @@ def test_missing_member_rolls_back_before_updates(db):
         cohort_service.update_cohort_members(1,[7,9],[])
     assert not any("UPDATE trainees" in c.args[0] for c in cursor.execute.call_args_list)
     connection.close.assert_called_once()
+
+
+def test_assignment_editor_removes_only_selected_plan_links_and_keeps_reports(db):
+    connection, cursor = db
+    cursor.fetchone.return_value = (3,)
+    cursor.fetchall.side_effect = [[(11,)],[(7,)],[(9,),(11,)]]
+    assert service.update_plan_assignments(3,[11],[7]) == [9,11]
+    calls = cursor.execute.call_args_list
+    assert "FOR UPDATE" in calls[0].args[0]
+    assert calls[2].args[1] == (3,[7])
+    assert "DELETE FROM plan_assignments WHERE plan_id = %s AND trainee_id = ANY(%s)" in calls[2].args[0]
+    assert any("ON CONFLICT" in c.args[0] for c in calls)
+    assert not any("progress_reports" in c.args[0] for c in calls)
+    connection.close.assert_called_once()
+
+
+def test_assignment_editor_invalid_add_rolls_back_before_removal(db):
+    connection, cursor = db
+    cursor.fetchone.return_value = (3,)
+    cursor.fetchall.return_value = []
+    with pytest.raises(service.AssignmentReferenceError):
+        service.update_plan_assignments(3,[11],[7])
+    assert not any("DELETE" in c.args[0] for c in cursor.execute.call_args_list)
+    assert connection.__exit__.call_args.args[0] is service.AssignmentReferenceError
+
+
+def test_assignment_editor_reads_existing_ids(db):
+    connection, cursor = db
+    cursor.fetchone.return_value = (3,)
+    cursor.fetchall.return_value = [(7,),(9,)]
+    assert service.get_plan_assignments(3) == [7,9]

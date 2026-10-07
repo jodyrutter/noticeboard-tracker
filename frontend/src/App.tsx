@@ -5,6 +5,7 @@ import { usePathname } from "./auth/usePathname";
 import { useResource, useSessionExpiration } from "./hooks";
 import { AuthScreen } from "./components/AuthScreen";
 import { ErrorBox, Icon, Logo, State } from "./components/UI";
+import { NotificationBell } from "./components/NotificationBell";
 import { Promotion } from "./pages/Promotion";
 import { Overview } from "./pages/Overview";
 import { Plans } from "./pages/Plans";
@@ -156,23 +157,25 @@ function Workspace({
         </div>
         <span className="nav-caption">WORKSPACE</span>
         <nav aria-label="Main navigation">
-          {items.map((i) => (
-            <a
-              href={`/app/${i.id}`}
-              key={i.id}
-              aria-current={page === i.id ? "page" : undefined}
-              onClick={(e) => {
-                if (!e.ctrlKey && !e.metaKey) {
-                  e.preventDefault();
-                  go(i.id);
-                }
-              }}
-            >
-              <Icon name={i.id} />
-              {i.label}
-              {page === i.id && <span className="nav-indicator" />}
-            </a>
-          ))}
+          {items
+            .filter((i) => i.id !== "profile" && i.id !== "notifications")
+            .map((i) => (
+              <a
+                href={`/app/${i.id}`}
+                key={i.id}
+                aria-current={page === i.id ? "page" : undefined}
+                onClick={(e) => {
+                  if (!e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    go(i.id);
+                  }
+                }}
+              >
+                <Icon name={i.id} />
+                {i.label}
+                {page === i.id && <span className="nav-indicator" />}
+              </a>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-note">
@@ -183,7 +186,11 @@ function Workspace({
               every day.
             </p>
           </div>
-          <button className="sidebar-user" onClick={() => go("profile")}>
+          <button
+            className="sidebar-user"
+            aria-label="Open my account"
+            onClick={() => go("profile")}
+          >
             <span className="avatar">{user.name.slice(0, 1)}</span>
             <span>
               <strong>{user.name}</strong>
@@ -226,13 +233,10 @@ function Workspace({
                 day: "numeric",
               })}
             </span>
-            <button
-              className="icon-button"
-              aria-label="Open notifications"
-              onClick={() => go("notifications")}
-            >
-              <Icon name="notifications" />
-            </button>
+            <NotificationBell
+              userId={user.user_id}
+              open={() => go("notifications")}
+            />
             <button
               className="text-button"
               disabled={busy}
@@ -252,7 +256,7 @@ function Workspace({
           )}
           {page === "plans" && <Plans user={user} />}
           {page === "promotion" && user.role === "HR" && (
-            <Promotion user={user} profileChanged={profile.refresh} />
+            <Promotion user={user} />
           )}
           {page === "trainees" && user.role !== "TRAINEE" && (
             <Trainees user={user} />
