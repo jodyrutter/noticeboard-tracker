@@ -20,7 +20,10 @@ export function Overview({
     people = useResource<OverviewTrainee[]>("/dashboard/trainees");
   const s = summary.data;
   const reports = s
-    ? s.completed_reports + s.in_progress_reports + s.blocked_reports
+    ? s.completed_reports +
+      s.in_progress_reports +
+      s.blocked_reports +
+      (s.not_started_reports ?? 0)
     : 0;
   return (
     <>
@@ -160,6 +163,7 @@ export function Overview({
                   { n: s.completed_reports, c: "complete" },
                   { n: s.in_progress_reports, c: "inprogress" },
                   { n: s.blocked_reports, c: "blocked" },
+                  { n: s.not_started_reports ?? 0, c: "notstarted" },
                 ].map((x) => (
                   <span
                     key={x.c}
@@ -174,6 +178,7 @@ export function Overview({
                   ["Completed", s.completed_reports, "complete"],
                   ["In progress", s.in_progress_reports, "inprogress"],
                   ["Blocked", s.blocked_reports, "blocked"],
+                  ["Not started", s.not_started_reports ?? 0, "notstarted"],
                 ].map(([label, value, c]) => (
                   <div key={label}>
                     <span className={`dot ${c}`} />

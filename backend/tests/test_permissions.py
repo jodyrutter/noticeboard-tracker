@@ -12,6 +12,10 @@ from services import auth_service, trainee_service, plan_service, progress_servi
 
 
 ROUTES = [
+    ("PATCH", "/cohorts/1/members", {"add": [7], "remove": []}, {"HR"}, 200),
+    ("GET", "/users/promotion", None, {"HR"}, 200),
+    ("PATCH", "/users/9/role", {"role": "MANAGER"}, {"HR"}, 200),
+    ("GET", "/users/unenrolled", None, {"HR"}, 200),
     ("GET", "/trainees/7", None, {"HR", "MANAGER", "TRAINEE"}, 200),
     ("PUT", "/trainees/7", {"status": "ACTIVE", "cohort_id": 2, "onboarding_date": "2026-10-06"}, {"HR"}, 200),
     ("GET", "/cohorts/1", None, {"HR", "MANAGER", "TRAINEE"}, 200),
@@ -60,7 +64,7 @@ def client():
 @pytest.fixture
 def services(monkeypatch):
     names = [
-        "get_own_trainee", "get_own_cohort", "get_own_progress",
+        "update_cohort_members", "get_promotion_users", "update_user_role", "get_unenrolled_users", "get_own_trainee", "get_own_cohort", "get_own_progress",
         "get_trainee", "get_cohort", "get_plan", "update_plan", "delete_plan", "get_progress_by_plan",
         "get_all_trainees", "get_all_cohorts", "get_all_plans", "get_assigned_plans",
         "get_progress_by_trainee", "get_notifications_by_user", "get_dashboard_summary",
@@ -100,6 +104,7 @@ def test_matrix_covers_every_business_route(client):
               if not path.startswith("/api/") for method in methods}
     normalized = {(method, path.replace("/trainees/7", "/trainees/{trainee_id}")
                    .replace("/trainee/7", "/trainee/{trainee_id}")
+                   .replace("/users/9/role", "/users/{user_id}/role")
                    .replace("/notifications/8", "/notifications/{user_id}")
                    .replace("/notifications/12", "/notifications/{notification_id}")
                    .replace("/plans/3", "/plans/{plan_id}")
@@ -459,3 +464,118 @@ def test_ambiguous_trainee_mapping_is_not_guessed(client, user, services):
     services["get_own_trainee"].side_effect = MultipleTraineeRecordsError
     assert client.post("/progress", json={"plan_id": 3, "status": "IN_PROGRESS", "comments": None}).status_code == 409
     services["create_progress_report"].assert_not_called()
+
+
+def test_unenrolled_users_response(client, user, services):
+    user.role = "HR"
+    services["get_unenrolled_users"].return_value = [{"user_id": 25, "email": "new@example.com", "name": "New User"}]
+    response = client.get("/users/unenrolled")
+    assert response.status_code == 200
+    assert response.json() == services["get_unenrolled_users"].return_value
+
+
+def test_unenrolled_users_query_excludes_existing_profiles(db):
+    connection, cursor = db
+    cursor.fetchall.return_value = []
+    assert trainee_service.get_unenrolled_users() == []
+    query = cursor.execute.call_args.args[0]
+    assert "u.role = 'TRAINEE'" in query
+    assert "NOT EXISTS" in query and "t.user_id = u.id" in query
+    assert "u.id AS user_id, u.name, u.email" in query
+    assert "password" not in query
+
+
+def test_enrollment_rejects_existing_profile(db):
+    connection, cursor = db
+    cursor.fetchone.side_effect = [(8,), (7,)]
+    with pytest.raises(trainee_service.TraineeAlreadyExistsError):
+        trainee_service.create_trainee(8, None, "ACTIVE", "2026-10-06")
+    assert "pg_advisory_xact_lock" in cursor.execute.call_args_list[0].args[0]
+    assert not any("INSERT" in call.args[0] for call in cursor.execute.call_args_list)
+    assert connection.__exit__.call_args.args[0] is trainee_service.TraineeAlreadyExistsError
+
+
+def test_enrollment_of_available_user(db):
+    connection, cursor = db
+    cursor.fetchone.side_effect = [(8,), None, (7,)]
+    assert trainee_service.create_trainee(8, None, "ACTIVE", "2026-10-06") == 7
+    assert cursor.execute.call_args.args[1] == (None, "ACTIVE", "2026-10-06", 8)
+
+
+def test_duplicate_enrollment_returns_conflict(client, user, services):
+    user.role = "HR"
+    services["create_trainee"].side_effect = trainee_service.TraineeAlreadyExistsError
+    response = client.post("/trainees", json={"user_id": 8, "cohort_id": None, "status": "ACTIVE", "onboarding_date": "2026-10-06"})
+    assert response.status_code == 409
+    assert "already enrolled" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("role", ["HR", "MANAGER", "TRAINEE"])
+def test_role_change_forwards_selected_role(client, user, services, role):
+    user.role = "HR"
+    services["update_user_role"].return_value = {"user_id": 9, "role": role}
+    assert client.patch("/users/9/role", json={"role": role}).status_code == 200
+    services["update_user_role"].assert_called_once_with(9, role)
+
+
+def test_role_change_missing_assigned_and_invalid(client, user, services):
+    from services.promotion_service import AssignedTrainingError
+    user.role = "HR"
+    assert client.patch("/users/9/role", json={"role": "ADMIN"}).status_code == 422
+    assert client.patch("/users/9/role", json={"role": "HR", "email": "x"}).status_code == 422
+    services["update_user_role"].assert_not_called()
+    services["update_user_role"].return_value = None
+    assert client.patch("/users/9/role", json={"role": "HR"}).status_code == 404
+    services["update_user_role"].side_effect = AssignedTrainingError
+    assert client.patch("/users/9/role", json={"role": "HR"}).status_code == 409
+
+
+@pytest.mark.parametrize("method,path,role,body", [
+    ("POST", "/trainees", "HR", {"user_id": 8, "cohort_id": None, "onboarding_date": "2026-10-06"}),
+    ("PATCH", "/trainees/7", "HR", {}),
+    ("PUT", "/trainees/7", "HR", {"cohort_id": None, "onboarding_date": "2026-10-06"}),
+    ("POST", "/progress", "TRAINEE", {"plan_id": 3, "comments": None}),
+])
+@pytest.mark.parametrize("status", ["OTHER", "active", "", None])
+def test_invalid_status_rejected(client, user, services, method, path, role, body, status):
+    user.role = role
+    assert client.request(method, path, json={**body, "status": status}).status_code == 422
+    services["create_trainee"].assert_not_called()
+    services["update_trainee"].assert_not_called()
+    services["create_progress_report"].assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["ACTIVE", "INACTIVE", "COMPLETED", "WITHDRAWN"])
+def test_trainee_status_values(client, user, services, status):
+    user.role = "HR"
+    assert client.patch("/trainees/7", json={"status": status}).status_code == 200
+
+
+@pytest.mark.parametrize("status", ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "BLOCKED"])
+def test_progress_status_values(client, user, services, status):
+    assert client.post("/progress", json={"trainee_id":7,"plan_id":3,"status":status,"comments":None}).status_code == 201
+
+
+def test_cohort_member_changes(client, user, services):
+    user.role = "HR"
+    services["update_cohort_members"].return_value = [7, 9]
+    response = client.patch("/cohorts/1/members", json={"add":[7],"remove":[9]})
+    assert response.json() == {"updated_ids":[7,9]}
+    services["update_cohort_members"].assert_called_once_with(1,[7],[9])
+    assert client.patch("/cohorts/1/members", json={"add":[7],"remove":[7]}).status_code == 422
+    assert client.patch("/cohorts/1/members", json={"add":[-1]}).status_code == 422
+    services["update_cohort_members"].return_value = None
+    assert client.patch("/cohorts/1/members", json={"add":[7]}).status_code == 404
+    services["update_cohort_members"].side_effect = cohort_service.MissingCohortMemberError
+    assert client.patch("/cohorts/1/members", json={"add":[7]}).status_code == 409
+
+
+def test_assignment_conflicts_are_explained(client, user, services):
+    from services.assignment_service import AlreadyAssignedError, AssignmentReferenceError
+    user.role = "MANAGER"
+    services["assign_plan_to_trainee"].side_effect = AlreadyAssignedError
+    response = client.post("/plans/3/assign/trainee/7")
+    assert response.status_code == 409
+    assert "already assigned" in response.json()["detail"]
+    services["assign_plan_to_trainee"].side_effect = AssignmentReferenceError
+    assert client.post("/plans/3/assign/trainee/7").status_code == 404

@@ -125,6 +125,10 @@ async function setup(page: Page, role = "MANAGER", signedIn = true) {
         status: t.status,
       })),
       "/trainees": trainees,
+      "/users/unenrolled": [
+        { user_id: 25, email: "new@example.com", name: "New User" },
+        { user_id: 26, email: "other@example.com", name: "Other User" },
+      ],
       "/plans": plans,
       "/plans/3": plan,
       "/cohorts": [
@@ -238,7 +242,20 @@ test("HR enrollment, cohort assignment and cohort creation", async ({
     page.getByRole("link", { name: "Overview", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "＋ Add trainee" }).click();
-  await page.getByLabel("User account ID").fill("25");
+  await expect(page.getByLabel("User account ID")).toHaveCount(0);
+  await page.getByLabel("Onboarding date").fill("2026-10-10");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Add trainee", exact: true })
+    .click();
+  expect(writes.some((w) => w.path === "/trainees")).toBeFalsy();
+  await expect(page.getByRole("dialog")).toBeVisible();
+
+  await page.getByLabel("Search by email").fill("NEW@");
+  await expect(
+    page.getByRole("option", { name: "other@example.com", exact: false }),
+  ).toHaveCount(0);
+  await page.getByLabel("Available trainee emails").selectOption("25");
   await page.getByLabel("Onboarding date").fill("2026-10-10");
   await page
     .getByRole("dialog")
@@ -289,6 +306,15 @@ test("trainee progress, own notifications, profile and logout", async ({
     page.getByRole("button", { name: "Edit", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Share a progress update" }).click();
+  await expect(
+    page.getByLabel("How is it going?").locator("option"),
+  ).toHaveText([
+    "Choose…",
+    "Not started",
+    "In progress",
+    "Completed",
+    "Blocked — I need help",
+  ]);
   await page.getByLabel("Your update").fill("Completed the exercises.");
   await page.getByRole("button", { name: "Submit progress" }).click();
   await expect(
@@ -392,4 +418,225 @@ test("login rate limit is explained", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Too many attempts");
   await page.screenshot({ path: "test-results/signin.png", fullPage: true });
+});
+
+test("enrollment empty list and stale selection conflict", async ({ page }) => {
+  await setup(page, "HR");
+  await page.goto("/app/trainees");
+  await page.getByRole("button", { name: "＋ Add trainee" }).click();
+  await page.getByLabel("Search by email").fill("missing@");
+  await expect(
+    page.getByText("No available users match that email."),
+  ).toBeVisible();
+  await page.getByLabel("Search by email").fill("new@");
+  await page.getByLabel("Available trainee emails").selectOption("25");
+  await page.getByLabel("Onboarding date").fill("2026-10-10");
+  await page.route("**/backend/trainees", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 409,
+          json: { detail: "This user is already enrolled as a trainee." },
+        })
+      : route.fallback(),
+  );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Add trainee", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("already enrolled");
+  await page.route("**/backend/users/unenrolled", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.getByRole("button", { name: "Refresh available users" }).click();
+  await expect(
+    page.getByRole("heading", { name: "No users awaiting enrollment" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Add trainee", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("HR promotion tables and role changes", async ({ page }) => {
+  const writes = await setup(page, "HR");
+  const promoted = {
+    user_id: 25,
+    name: "New User",
+    email: "new@example.com",
+    role: "TRAINEE",
+  };
+  const staff = [
+    {
+      user_id: 9,
+      name: "Staff User",
+      email: "staff@example.com",
+      role: "MANAGER",
+    },
+  ];
+  await page.route("**/backend/users/promotion", (route) =>
+    route.fulfill({
+      json: {
+        staff: promoted.role === "TRAINEE" ? staff : [...staff, promoted],
+        eligible: promoted.role === "TRAINEE" ? [promoted] : [],
+      },
+    }),
+  );
+  await page.route("**/backend/users/25/role", (route) => {
+    promoted.role = route.request().postDataJSON().role;
+    return route.fulfill({ json: promoted });
+  });
+  await page.goto("/app/promotion");
+  await expect(
+    page.getByRole("heading", { name: "Existing HR and Managers" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Eligible trainees" }),
+  ).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(2);
+  await page.screenshot({ path: "test-results/promotion.png", fullPage: true });
+  for (const role of ["HR", "MANAGER", "TRAINEE"]) {
+    await page
+      .getByRole("button", { name: "Change role for new@example.com" })
+      .click();
+    await page.getByLabel("Account role").selectOption(role);
+    await page.getByRole("button", { name: "Save role" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("row").filter({ hasText: "new@example.com" }),
+    ).toContainText(role.toLowerCase());
+  }
+  await page.route("**/backend/users/25/role", (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        detail: "This user has assigned training and cannot change roles.",
+      },
+    }),
+  );
+  await page
+    .getByRole("button", { name: "Change role for new@example.com" })
+    .click();
+  await page.getByLabel("Account role").selectOption("HR");
+  await page.getByRole("button", { name: "Save role" }).click();
+  await expect(page.getByRole("alert")).toContainText("assigned training");
+  expect(writes.filter((w) => w.path === "/api/signup")).toHaveLength(0);
+});
+
+for (const role of ["TRAINEE", "MANAGER"]) {
+  test(`Promotion is hidden from ${role}`, async ({ page }) => {
+    await setup(page, role);
+    await page.goto("/app/promotion");
+    await expect(
+      page.getByRole("heading", {
+        name:
+          role === "MANAGER"
+            ? "Your team, moving forward."
+            : "My learning plans",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Promotion", exact: true }),
+    ).toHaveCount(0);
+  });
+}
+
+test("trainee and progress status dropdowns use fixed values", async ({
+  page,
+}) => {
+  await setup(page, "HR");
+  await page.goto("/app/trainees");
+  await page.getByRole("button", { name: "View", exact: true }).first().click();
+  await expect(page.getByLabel("Status").locator("option")).toHaveText([
+    "Choose…",
+    "ACTIVE",
+    "INACTIVE",
+    "COMPLETED",
+    "WITHDRAWN",
+  ]);
+  await page.getByLabel("Status").selectOption("WITHDRAWN");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("cohort checkbox picker adds, removes and keeps selections while searching", async ({
+  page,
+}) => {
+  const writes = await setup(page, "HR");
+  await page.goto("/app/cohorts");
+  await page.getByRole("button", { name: "View cohort" }).first().click();
+  await page.getByText("Choose members (2 selected)").click();
+  await expect(
+    page.getByRole("checkbox", { name: /Alex Morgan/ }),
+  ).toBeChecked();
+  await page.getByRole("checkbox", { name: /Jamie Rivera/ }).uncheck();
+  await page.getByRole("checkbox", { name: /Sam Chen/ }).check();
+  await page
+    .getByRole("textbox", { name: "Search members by name or email…" })
+    .fill("alex");
+  await page.getByRole("button", { name: "Save members" }).click();
+  await expect(page.getByText("Cohort members saved.")).toBeVisible();
+  expect(writes.find((w) => w.path === "/cohorts/1/members")?.body).toEqual({
+    add: [11],
+    remove: [9],
+  });
+});
+
+test("focus revalidation preserves open forms and throttles repeated focus", async ({
+  page,
+}) => {
+  await setup(page, "MANAGER");
+  await page.clock.install();
+  let initialReads = 0;
+  await page.route("**/backend/api/me", (route) => {
+    initialReads++;
+    return route.fallback();
+  });
+  await page.goto("/app/plans");
+  await page.getByRole("button", { name: "＋ Create plan" }).click();
+  await page.getByLabel("Plan title").fill("Unsaved draft");
+  expect(initialReads).toBe(1);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  expect(initialReads).toBe(1);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let checks = 0;
+  await page.route("**/backend/api/me", async (route) => {
+    checks++;
+    await gate;
+    await route.fallback();
+  });
+  await page.clock.fastForward(61000);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => checks).toBe(1);
+  await expect(page.getByLabel("Plan title")).toHaveValue("Unsaved draft");
+  const response = page.waitForResponse("**/backend/api/me");
+  release();
+  await response;
+  await expect(page.getByLabel("Plan title")).toHaveValue("Unsaved draft");
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(checks).toBe(1);
+});
+
+test("duplicate plan assignment displays useful conflict", async ({ page }) => {
+  await setup(page, "MANAGER");
+  await page.route("**/backend/plans/3/assign/trainee/7", (route) =>
+    route.fulfill({
+      status: 409,
+      json: { detail: "This plan is already assigned to this trainee." },
+    }),
+  );
+  await page.goto("/app/plans");
+  await page
+    .getByRole("button", { name: `Open ${plan.title}`, exact: true })
+    .click();
+  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  await page.getByLabel("Trainee", { exact: true }).selectOption("7");
+  await page.getByRole("button", { name: "Assign plan", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("already assigned");
 });

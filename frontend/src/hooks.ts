@@ -3,33 +3,51 @@ import { api } from "./api/client";
 import { authStore } from "./auth/authStore";
 import type { AuthSession } from "./types/auth";
 
+const pendingReads = new Map<string, Promise<unknown>>();
+
+function readResource<T>(path: string): Promise<T> {
+  const key = `${authStore.get()?.token ?? "anonymous"}:${path}`;
+  let request = pendingReads.get(key);
+  if (!request) {
+    request = api.get<T>(path).finally(() => pendingReads.delete(key));
+    pendingReads.set(key, request);
+  }
+  return request as Promise<T>;
+}
+
 export function useResource<T>(path: string) {
-  const [data, setData] = useState<T | null>(null);
+  const [result, setResult] = useState<{ path: string; data: T } | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(true);
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
+  const data = result?.path === path ? result.data : null;
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    setPending(true);
     setError("");
-    setData(null);
-    api
-      .get<T>(path)
+    readResource<T>(path)
       .then((value) => {
-        if (active) setData(value);
+        if (active) setResult({ path, data: value });
       })
       .catch((e) => {
         if (active) setError(e.message);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) setPending(false);
       });
     return () => {
       active = false;
     };
   }, [path, version]);
-  return { data, error, loading, refresh };
+  return {
+    data,
+    error,
+    loading: pending && data === null,
+    refreshing: pending && data !== null,
+    hasData: data !== null,
+    refresh,
+  };
 }
 
 export function useSessionExpiration(session: AuthSession | null) {

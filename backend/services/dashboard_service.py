@@ -57,6 +57,9 @@ def get_dashboard_summary():
     """)
     missing_reports = cursor.fetchone()[0]
 
+    cursor.execute("SELECT COUNT(*) FROM progress_reports WHERE status = 'NOT_STARTED';")
+    not_started_reports = cursor.fetchone()[0]
+
     cursor.close()
     connection.close()
 
@@ -67,6 +70,7 @@ def get_dashboard_summary():
         "completed_reports": completed_reports,
         "in_progress_reports": in_progress_reports,
         "blocked_reports": blocked_reports,
+        "not_started_reports": not_started_reports,
         "missing_reports": missing_reports
     }
     

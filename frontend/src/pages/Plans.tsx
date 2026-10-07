@@ -262,6 +262,7 @@ function PlanDetails({
                 required: true,
                 value: "IN_PROGRESS",
                 options: [
+                  { value: "NOT_STARTED", label: "Not started" },
                   { value: "IN_PROGRESS", label: "In progress" },
                   { value: "COMPLETED", label: "Completed" },
                   { value: "BLOCKED", label: "Blocked — I need help" },

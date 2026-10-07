@@ -1814,3 +1814,60 @@ dialog > .success-box {
 .art-note b {
   font-size: 26px;
 }
+
+.enrollment-list {
+  height: 190px;
+  overflow-y: auto;
+  width: 100%;
+}
+.enrollment-list option {
+  padding: 10px;
+}
+
+.promotion-section {
+  margin-top: 32px;
+}
+
+.stacked-bar .notstarted,
+.dot.notstarted {
+  background: #89959c;
+}
+
+.member-picker {
+  border: 1px solid #ced8d3;
+  border-radius: 10px;
+  padding: 14px;
+}
+.member-picker summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.member-picker .search {
+  margin: 14px 0;
+  width: 100%;
+}
+.member-options {
+  max-height: 250px;
+  overflow-y: auto;
+}
+.member-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  cursor: pointer;
+}
+.member-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: #254d43;
+}
+.member-option strong,
+.member-option small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.member-option small {
+  color: #657777;
+  margin-top: 3px;
+}

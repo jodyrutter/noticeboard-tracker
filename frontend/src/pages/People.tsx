@@ -27,17 +27,6 @@ export function Trainees({ user }: { user: User }) {
         .includes(search.toLowerCase()),
     ) ?? [];
   const fields = (t?: Trainee): Field[] => [
-    ...(!t
-      ? [
-          {
-            name: "user_id",
-            label: "User account ID",
-            type: "number",
-            required: true,
-            hint: "The trainee can find this in My account after signing up.",
-          },
-        ]
-      : []),
     {
       name: "cohort_id",
       label: "Cohort (optional)",
@@ -49,7 +38,9 @@ export function Trainees({ user }: { user: User }) {
       label: "Status",
       value: t?.status ?? "ACTIVE",
       required: true,
-      hint: "Use a status supported by your training program.",
+      options: ["ACTIVE", "INACTIVE", "COMPLETED", "WITHDRAWN"].map(
+        (value) => ({ value, label: value }),
+      ),
     },
     {
       name: "onboarding_date",
@@ -138,7 +129,7 @@ export function Trainees({ user }: { user: User }) {
       {create && (
         <Modal title="Welcome a new trainee" close={() => setCreate(false)}>
           <State {...cohorts} retry={cohorts.refresh}>
-            <RecordForm
+            <EnrollTrainee
               fields={fields()}
               label="Add trainee"
               submit={(v) =>
@@ -188,6 +179,99 @@ export function Trainees({ user }: { user: User }) {
         </Modal>
       )}
     </>
+  );
+}
+
+function EnrollTrainee(props: React.ComponentProps<typeof RecordForm>) {
+  const users =
+    useResource<{ user_id: number; name: string; email: string }[]>(
+      "/users/unenrolled",
+    );
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState("");
+  const matches =
+    users.data?.filter((u) =>
+      u.email.toLowerCase().includes(query.trim().toLowerCase()),
+    ) ?? [];
+  return (
+    <State {...users} retry={users.refresh}>
+      {!users.data?.length ? (
+        <div className="empty">
+          <h3>No users awaiting enrollment</h3>
+          <p>New trainee accounts will appear here after signup.</p>
+          <button className="button" onClick={users.refresh}>
+            Refresh available users
+          </button>
+        </div>
+      ) : (
+        <RecordForm
+          {...props}
+          submit={async (values) => {
+            if (
+              !selected ||
+              !matches.some((u) => String(u.user_id) === selected)
+            ) {
+              throw new Error(
+                "Select an available email before adding a trainee.",
+              );
+            }
+            return props.submit({ ...values, user_id: selected });
+          }}
+        >
+          <label className="field">
+            Search by email
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSelected("");
+              }}
+              placeholder="Type an email address…"
+            />
+          </label>
+          <label className="field">
+            <span id="available-users-label">Available trainee emails</span>
+            <select
+              className="enrollment-list"
+              aria-labelledby="available-users-label"
+              name="user_id"
+              size={6}
+              required
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+            >
+              <option value="" disabled>
+                Select an email…
+              </option>
+              {matches.map((u) => (
+                <option key={u.user_id} value={u.user_id}>
+                  {u.email} — {u.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!matches.length && (
+            <p role="status">No available users match that email.</p>
+          )}
+          <p className="muted">
+            {selected
+              ? `Selected: ${matches.find((u) => String(u.user_id) === selected)?.email}`
+              : "Select an email to enroll this person."}
+          </p>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              setSelected("");
+              users.refresh();
+            }}
+          >
+            Refresh available users
+          </button>
+        </RecordForm>
+      )}
+    </State>
   );
 }
 
@@ -256,11 +340,14 @@ export function Cohorts({ user }: { user: User }) {
                 Ends<strong>{date(selected.end_date)}</strong>
               </span>
             </div>
-            <p className="muted">
-              {user.role === "HR"
-                ? "Assign people to this cohort from the Trainees page."
-                : "Assign a training plan to this cohort from the Training plans page."}
-            </p>
+            {user.role === "HR" ? (
+              <CohortMembers cohort={selected} />
+            ) : (
+              <p className="muted">
+                Assign a training plan to this cohort from the Training plans
+                page.
+              </p>
+            )}
           </div>
         </Modal>
       )}
@@ -296,5 +383,100 @@ export function Cohorts({ user }: { user: User }) {
         </Modal>
       )}
     </>
+  );
+}
+
+function CohortMembers({ cohort }: { cohort: Cohort }) {
+  const resource = useResource<Trainee[]>("/trainees");
+  return (
+    <State {...resource} retry={resource.refresh}>
+      {resource.data && (
+        <CohortMemberForm
+          key={cohort.id}
+          cohort={cohort}
+          trainees={resource.data}
+        />
+      )}
+    </State>
+  );
+}
+
+function CohortMemberForm({
+  cohort,
+  trainees,
+}: {
+  cohort: Cohort;
+  trainees: Trainee[];
+}) {
+  const [baseline, setBaseline] = useState(() =>
+    trainees.filter((t) => t.cohort_id === cohort.id).map((t) => t.id),
+  );
+  const [selected, setSelected] = useState(baseline);
+  const [query, setQuery] = useState("");
+  const [saved, setSaved] = useState(false);
+  const matches = trainees.filter((t) =>
+    `${t.name} ${t.email}`.toLowerCase().includes(query.toLowerCase()),
+  );
+  return (
+    <RecordForm
+      fields={[]}
+      label="Save members"
+      submit={async () => {
+        const snapshot = [...selected];
+        await api.patch(`/cohorts/${cohort.id}/members`, {
+          add: snapshot.filter((id) => !baseline.includes(id)),
+          remove: baseline.filter((id) => !snapshot.includes(id)),
+        });
+        setBaseline(snapshot);
+        setSaved(true);
+      }}
+      done={() => {}}
+    >
+      <p>
+        Select people to join this cohort. Unchecking a member removes them from
+        this cohort. Selecting someone from another cohort moves them here.
+      </p>
+      <details className="member-picker">
+        <summary>Choose members ({selected.length} selected)</summary>
+        <Search
+          value={query}
+          onChange={setQuery}
+          placeholder="Search members by name or email…"
+        />
+        <div className="member-options">
+          {matches.map((t) => (
+            <label className="member-option" key={t.id}>
+              <input
+                type="checkbox"
+                checked={selected.includes(t.id)}
+                onChange={(e) => {
+                  setSaved(false);
+                  setSelected((ids) =>
+                    e.target.checked
+                      ? [...ids, t.id]
+                      : ids.filter((id) => id !== t.id),
+                  );
+                }}
+              />
+              <span>
+                <strong>{t.name || t.email}</strong>
+                <small>
+                  {t.email}
+                  {t.cohort_id && t.cohort_id !== cohort.id
+                    ? ` · ${t.cohort_name || "Another cohort"}`
+                    : ""}
+                </small>
+              </span>
+            </label>
+          ))}
+          {!matches.length && <p>No matching trainees.</p>}
+        </div>
+      </details>
+      {saved && (
+        <p className="success-box" role="status">
+          Cohort members saved.
+        </p>
+      )}
+    </RecordForm>
   );
 }

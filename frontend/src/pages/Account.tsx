@@ -125,7 +125,7 @@ export function Account({ user }: { user: User }) {
             </div>
           </dl>
           <p className="panel-note">
-            Share your account ID with HR for onboarding. Contact your team
+            HR can find your account by email for onboarding. Contact your team
             administrator to update your account details.
           </p>
         </div>

@@ -20,7 +20,7 @@ npm run dev
 
 Open http://127.0.0.1:5173/app. Node.js 20.19+ or 22+ is recommended. Vite forwards `/backend/*` requests to port 8000, stripping `/backend`. No database secrets belong in the frontend or any `VITE_*` variable.
 
-Use your existing HR login. Signup creates a TRAINEE account. The person can find their user ID under **My account**; HR uses that ID to enroll them through **Add trainee**. A database admin still sets the first HR/Manager roles. No new migration is needed for the frontend; existing backend migrations and permissions still apply.
+Use your existing HR login. Signup creates a TRAINEE account. HR selects their email from the searchable, scrollable list under **Add trainee**. Only trainee-role users without a trainee record are listed. A database admin still sets the first HR/Manager roles. Apply migration 004 for status constraints and role-update permissions; existing backend migrations and permissions still apply.
 
 ## Screens
 
@@ -29,9 +29,9 @@ Use your existing HR login. Signup creates a TRAINEE account. The person can fin
 - Manager: dashboard, trainee/cohort lists, create/edit/delete plans, assign to a trainee or cohort, review progress reports.
 - Trainee: assigned plans, own report history, submit progress.
 
-The backend remains the authority for roles and ownership. Hidden controls are only presentation. HTTP 401 clears the local session; 403, validation errors, network errors, rate limits, and empty lists have visible states. Expired tokens return the user to signin. There is no refresh-token endpoint, role editor, password-reset flow, or account editing API.
+The backend remains the authority for roles and ownership. Hidden controls are only presentation. HTTP 401 clears the local session; 403, validation errors, network errors, rate limits, and empty lists have visible states. Expired tokens return the user to signin. There is no refresh-token endpoint, password-reset flow, or account editing API.
 
-Cohort assignment applies to its current members, matching the backend. Moving a trainee into a cohort does not backfill its previous plan assignments. HR enrollment uses a user ID because the backend does not expose a user directory.
+Cohort assignment applies to its current members, matching the backend. Moving a trainee into a cohort does not backfill its previous plan assignments. HR enrollment uses `GET /users/unenrolled` to display available emails. Selection sends the associated ID to the existing enrollment endpoint; no ID entry is required.
 
 ## Build and test
 
@@ -62,4 +62,18 @@ Source project: `C:\becloudready\repo\cognixia_jump_citi_full_stack_react_28_sep
 
 `backend/tests/test_list_records.py` is also new AI-written coverage of the named-record cursor contract; it uses connection doubles and does not execute SQL against PostgreSQL.
 
-The auth store intentionally retains your project's localStorage bearer-token approach. The API validates the token and current role on every request. Review that storage choice before production; a script running on the origin can read localStorage. Nothing here grants HR the ability to create HR or Manager accounts.
+The auth store intentionally retains your project's localStorage bearer-token approach. The API validates the token and current role on every request. Review that storage choice before production; a script running on the origin can read localStorage. HR can now change eligible accounts to HR or Manager through the Promotion page; signup still creates TRAINEE accounts.
+
+
+The HR email picker, `GET /users/unenrolled` service and route, duplicate-enrollment
+handling, and their tests are new AI-written additions. The picker reuses
+`RecordForm` and `useResource`. It searches email case-insensitively in the returned
+list, supports keyboard selection and scrolling, and offers refresh after conflicts.
+
+
+**Promotion** is visible only to HR. It has separate existing-staff and eligible-trainee
+tables, search, and an account-role select. Eligibility means no assigned plans,
+not the absence of a trainee profile. Status fields now use the explicit enum
+values in the API. These controls, the promotion API, and status constraints are
+new AI-written additions. Apply migration 004 as a database admin before using
+role changes so `noticeboard_app` can update the role column.

@@ -5,6 +5,12 @@ export interface User {
   email: string;
   role: Role;
 }
+export type TraineeStatus = "ACTIVE" | "INACTIVE" | "COMPLETED" | "WITHDRAWN";
+export type ProgressStatus =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "BLOCKED";
 export interface Trainee {
   id: number;
   user_id: number;
@@ -12,7 +18,7 @@ export interface Trainee {
   email: string;
   cohort_id: number | null;
   cohort_name: string | null;
-  status: string;
+  status: TraineeStatus;
   onboarding_date: string;
 }
 export interface Cohort {
@@ -32,7 +38,7 @@ export interface Progress {
   id: number;
   trainee_id: number;
   plan_id: number;
-  status: string;
+  status: ProgressStatus;
   comments: string | null;
   submitted_at: string;
 }
@@ -50,5 +56,6 @@ export interface Summary {
   completed_reports: number;
   in_progress_reports: number;
   blocked_reports: number;
+  not_started_reports?: number;
   missing_reports: number;
 }

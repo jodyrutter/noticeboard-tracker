@@ -35,3 +35,25 @@ def create_cohort(name, start_date, end_date):
     connection.close();
     
     return cohort_id
+
+
+class MissingCohortMemberError(Exception):
+    pass
+
+
+def update_cohort_members(cohort_id, add, remove):
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM cohorts WHERE id = %s;", (cohort_id,))
+            if cursor.fetchone() is None:
+                return None
+            ids = sorted(set(add + remove))
+            cursor.execute("SELECT id FROM trainees WHERE id = ANY(%s) ORDER BY id FOR UPDATE;", (ids,))
+            if {r[0] for r in cursor.fetchall()} != set(ids):
+                raise MissingCohortMemberError
+            cursor.execute("""
+                UPDATE trainees SET cohort_id = CASE WHEN id = ANY(%s) THEN %s ELSE NULL END
+                WHERE id = ANY(%s) OR (cohort_id = %s AND id = ANY(%s))
+                RETURNING id;
+            """, (add, cohort_id, add, cohort_id, remove))
+            return [r[0] for r in cursor.fetchall()]

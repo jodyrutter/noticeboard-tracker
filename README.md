@@ -21,6 +21,7 @@ database role on every request. HR is not a superuser.
 
 | Endpoint | Allowed roles and scope |
 | --- | --- |
+| `GET /users/unenrolled` | HR only; trainee-role users without a trainee record. Returns user_id, name, email. |
 | `GET /trainees`, `GET /cohorts` | HR and MANAGER; managers need assignment targets. |
 | `GET /trainees/{trainee_id}`, `GET /cohorts/{cohort_id}` | HR/MANAGER, or the user linked to that trainee/cohort. Missing or inaccessible records return 404. |
 | `POST /trainees` | HR; enroll an existing user whose role is TRAINEE. |
@@ -44,7 +45,8 @@ database role on every request. HR is not a superuser.
 
 Signup/login remain public and rate limited. `/api/me` and `/api/logout` remain
 available to every authenticated role. Docs remain public. There are no
-role-promotion or HR/Manager creation endpoints.
+public role-promotion or HR/Manager signup endpoints. HR can manage roles through
+`GET /users/promotion` and `PATCH /users/{user_id}/role`.
 
 For trainee edits, run `backend/migrations/002_trainee_edit_permissions.sql` as a
 DB admin if the app user does not already have UPDATE permission. No new tables
@@ -141,7 +143,7 @@ the authorship of pre-existing code.
 | File | What to review |
 | --- | --- |
 | `backend/main.py` | FastAPI routes replacing the manual routing. Service calls, argument order, success codes, and messages follow the original handler. |
-| `backend/schemas.py` | New request types inferred from existing calls. Check these against your database and intended forms. All fields remain required; cohort ID, end date, description, due date, and comments accept explicit null. Dates are parsed into Python dates. Status values remain unrestricted strings because the schema is unavailable. |
+| `backend/schemas.py` | New request types inferred from existing calls. Check these against your database and intended forms. All fields remain required; cohort ID, end date, description, due date, and comments accept explicit null. Dates are parsed into Python dates. Trainee and progress status values use the explicit enums described below. |
 | `backend/lambda_function.py` | New Mangum adapter preserving the handler name. Verify in your actual AWS environment before deployment. |
 | `backend/tests/test_api.py`, `pytest.ini` | New mocked HTTP tests and test-discovery configuration. These verify routing, not database correctness. |
 | `backend/test_*.py` | Existing manual scripts wrapped in main guards; the Lambda sample now supplies a full HTTP API v2 event. |
@@ -155,7 +157,7 @@ Intentional API differences to review:
 - Datetimes serialize as ISO 8601 with `T` between date and time rather than the
   old `str(datetime)` space. Dates remain `YYYY-MM-DD`; list records now use named objects.
 - Trainee creation/updates, plan creation, progress submission, and auth reject
-  extra fields. No new status enum, date-order rule, or positive-ID rule was added.
+  extra fields. Status values are restricted to the enums below. No date-order or positive-ID rule was added.
 
 The full schema is absent from the repository; SQL checks need verification
 against the deployed database. Existing unchanged services still need broader
@@ -171,3 +173,48 @@ Ownership access is implemented on the existing ID-based routes. No new
 remains the current-user lookup. Trainee IDs are checked against `trainees.user_id`,
 not compared directly with the user ID. Staff write permissions are unchanged.
 The ownership-query helpers and associated tests are new AI-written code.
+
+
+HR enrollment now uses a searchable, scrollable email picker populated by
+`GET /users/unenrolled`. The existing `POST /trainees` still accepts `user_id`;
+the frontend resolves it from the selected email. The endpoint excludes all
+users with an existing trainee record, including inactive records, and excludes
+HR/Manager accounts. It exposes only ID, name and email, never password hashes.
+Duplicate enrollment returns 409. Enrollment requests take a transaction-level
+advisory lock per user before checking for an existing record, preventing two
+requests through this service from enrolling the same user concurrently. Direct
+SQL writers must enforce the same rule separately. No schema migration is needed.
+The endpoint, query, duplicate guard, email picker and related tests are new
+AI-written code; they reuse existing HR authorization and enrollment forms.
+
+
+## Status values and Promotion
+
+Trainee status: `ACTIVE`, `INACTIVE`, `COMPLETED`, `WITHDRAWN`.
+Progress status: `NOT_STARTED`, `IN_PROGRESS`, `COMPLETED`, `BLOCKED`.
+Create, PUT and PATCH validation use these exact, case-sensitive values (422 on
+invalid input), and the frontend provides matching selects. Dashboard report
+counts include NOT_STARTED reports separately from assignments without reports.
+
+HR can open **Promotion** (`/app/promotion`). `GET /users/promotion` returns
+`staff` (all HR/Managers) and `eligible` (TRAINEE accounts with no plan assignments
+across any of their trainee profiles). An existing trainee profile or cohort
+membership alone does not exclude someone. Completed plan assignments still count
+as assignments. Both lists include only public account fields. Both this route
+and `PATCH /users/{user_id}/role` require HR. Role changes accept TRAINEE, HR or
+MANAGER, recheck assignments, and return 409 if training is assigned. Users can
+return to TRAINEE without losing their existing profile. Self-demotion is allowed;
+the UI refreshes the current user's permissions after saving. There is no last-HR
+restriction, so a DB admin may be needed if all HR accounts are demoted.
+
+Run `backend/migrations/004_status_values_and_promotion.sql` once as a DB admin.
+It adds CHECK constraints for the two status fields and grants the app user
+UPDATE permission on users.role. Existing invalid/null statuses cause validation
+to fail and the transaction to roll back; correct those deliberately before
+rerunning. No records are automatically renamed/deleted. Promotion eligibility is
+an application check; no database eligibility constraint or trigger is added.
+This assumes staff do not receive training assignments, as requested.
+
+The status definitions, Promotion service/routes/page, SQL script, dashboard
+NOT_STARTED count, and added tests are new AI-written code using the existing
+HR dependency, account roles, service connection patterns and shared forms.

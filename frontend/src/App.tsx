@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api/client";
 import { useAuth } from "./auth/useAuth";
 import { usePathname } from "./auth/usePathname";
 import { useResource, useSessionExpiration } from "./hooks";
 import { AuthScreen } from "./components/AuthScreen";
 import { ErrorBox, Icon, Logo, State } from "./components/UI";
+import { Promotion } from "./pages/Promotion";
 import { Overview } from "./pages/Overview";
 import { Plans } from "./pages/Plans";
 import { Trainees, Cohorts } from "./pages/People";
@@ -65,7 +66,10 @@ function Workspace({
             ]
           : []),
         ...(user.role === "HR"
-          ? [{ id: "plans", label: "My learning plans" }]
+          ? [
+              { id: "promotion", label: "Promotion" },
+              { id: "plans", label: "My learning plans" },
+            ]
           : []),
         { id: "notifications", label: "Notifications" },
         { id: "profile", label: "My account" },
@@ -76,10 +80,23 @@ function Workspace({
     if (user && !items.some((i) => i.id === page))
       replace(`/app/${items[0].id}`);
   }, [user, page, replace]);
+  const lastProfileCheck = useRef(Date.now());
   useEffect(() => {
-    const refresh = () => profile.refresh();
+    const refresh = () => {
+      if (
+        document.visibilityState !== "visible" ||
+        Date.now() - lastProfileCheck.current < 60_000
+      )
+        return;
+      lastProfileCheck.current = Date.now();
+      profile.refresh();
+    };
     window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [profile.refresh]);
   function go(id: string) {
     navigate(`/app/${id}`);
@@ -227,10 +244,16 @@ function Workspace({
         </header>
         <main id="main" key={`${page}-${user.role}`}>
           {error && <ErrorBox error={error} />}
+          {profile.error && (
+            <ErrorBox error={profile.error} retry={profile.refresh} />
+          )}
           {page === "overview" && user.role === "MANAGER" && (
             <Overview user={user} navigate={go} />
           )}
           {page === "plans" && <Plans user={user} />}
+          {page === "promotion" && user.role === "HR" && (
+            <Promotion user={user} profileChanged={profile.refresh} />
+          )}
           {page === "trainees" && user.role !== "TRAINEE" && (
             <Trainees user={user} />
           )}

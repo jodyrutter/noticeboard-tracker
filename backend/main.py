@@ -10,22 +10,22 @@ from auth import CurrentUser, HRUser, ManagerUser, TraineeUser, StaffUser
 
 from services.personal_service import get_own_trainee, get_own_cohort, get_own_progress, MultipleTraineeRecordsError
 
-from schemas import TraineeReplace, TraineeUpdate, TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
+from schemas import CohortMembersUpdate, RoleUpdate, TraineeReplace, TraineeUpdate, TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
 
 from services.trainee_service import (
-    get_all_trainees,
+    get_all_trainees, get_unenrolled_users, TraineeAlreadyExistsError,
     create_trainee, update_trainee, get_trainee, InvalidTraineeUserError, InvalidCohortError
 )
 from services.cohort_service import (
     get_all_cohorts,
-    create_cohort, get_cohort
+    create_cohort, get_cohort, update_cohort_members, MissingCohortMemberError
 )
 from services.plan_service import (
     get_all_plans,
     create_plan, get_assigned_plans, get_plan, update_plan, delete_plan, PlanInUseError
 )
 from services.assignment_service import (
-    assign_plan_to_trainee,
+    assign_plan_to_trainee, AlreadyAssignedError, AssignmentReferenceError,
     assign_plan_to_cohort
 )
 from services.progress_service import (
@@ -40,6 +40,8 @@ from services.dashboard_service import (
     get_dashboard_summary,
     get_trainee_overview
 )
+
+from services.promotion_service import get_promotion_users, update_user_role, AssignedTrainingError
 
 app = FastAPI(title="Noticeboard Tracker", version="0.1.0")
 
@@ -57,6 +59,34 @@ async def validation_error(request: Request, exc: RequestValidationError):
             for error in exc.errors()
         ]})
     return await request_validation_exception_handler(request, exc)
+
+@app.get("/users/promotion")
+def promotion_users(current_user: HRUser):
+    return get_promotion_users()
+
+
+@app.patch("/users/{user_id}/role")
+def change_user_role(user_id: int, body: RoleUpdate, current_user: HRUser):
+    user = update_user_role(user_id, body.role)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.exception_handler(AssignedTrainingError)
+async def assigned_training(request: Request, exc: AssignedTrainingError):
+    return JSONResponse(status_code=409, content={"detail": "This user has assigned training and cannot change roles."})
+
+
+@app.get("/users/unenrolled")
+def unenrolled_users(current_user: HRUser):
+    return get_unenrolled_users()
+
+
+@app.exception_handler(TraineeAlreadyExistsError)
+async def trainee_already_exists(request: Request, exc: TraineeAlreadyExistsError):
+    return JSONResponse(status_code=409, content={"detail": "This user is already enrolled as a trainee. Refresh the available users and choose another email."})
+
 
 @app.get("/trainees")
 def list_trainees(current_user: StaffUser):
@@ -115,6 +145,29 @@ def add_cohort(body: CohortCreate, current_user: HRUser):
 def add_plan(body: PlanCreate, current_user: ManagerUser):
     plan_id = create_plan(body.title, body.description, body.due_date, current_user.user_id)
     return {'id': plan_id, 'message': 'Plan created'}
+
+@app.patch("/cohorts/{cohort_id}/members")
+def edit_cohort_members(cohort_id: int, body: CohortMembersUpdate, current_user: HRUser):
+    updated = update_cohort_members(cohort_id, body.add, body.remove)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Cohort not found")
+    return {"updated_ids": updated}
+
+
+@app.exception_handler(MissingCohortMemberError)
+async def missing_cohort_member(request: Request, exc: MissingCohortMemberError):
+    return JSONResponse(status_code=409, content={"detail": "A selected trainee no longer exists. Reopen the cohort to refresh its members."})
+
+
+@app.exception_handler(AlreadyAssignedError)
+async def already_assigned(request: Request, exc: AlreadyAssignedError):
+    return JSONResponse(status_code=409, content={"detail": "This plan is already assigned to this trainee."})
+
+
+@app.exception_handler(AssignmentReferenceError)
+async def invalid_assignment_reference(request: Request, exc: AssignmentReferenceError):
+    return JSONResponse(status_code=404, content={"detail": "The plan or assignment target no longer exists. Refresh and try again."})
+
 
 @app.post("/plans/{plan_id}/assign/trainee/{trainee_id}", status_code=201)
 def assign_trainee(plan_id: int, trainee_id: int, current_user: ManagerUser):

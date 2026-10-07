@@ -118,7 +118,7 @@ def test_serialization(client, monkeypatch):
 def test_docs_and_routing(client):
     assert client.get("/docs").status_code == 200
     schema = client.get("/openapi.json").json()
-    assert sum(len(methods) for path, methods in schema["paths"].items() if not path.startswith("/api/")) == 23
+    assert sum(len(methods) for path, methods in schema["paths"].items() if not path.startswith("/api/")) == 27
     assert client.get("/missing").status_code == 404
     assert client.delete("/trainees").status_code == 405
     assert client.get("/notifications/1/extra").status_code == 404

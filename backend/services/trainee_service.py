@@ -9,8 +9,24 @@ class InvalidTraineeUserError(Exception):
     pass
 
 
+class TraineeAlreadyExistsError(Exception):
+    pass
+
+
 class InvalidCohortError(Exception):
     pass
+
+
+def get_unenrolled_users():
+    with closing(get_connection()) as connection, connection:
+        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("""
+                SELECT u.id AS user_id, u.name, u.email FROM users u
+                WHERE u.role = 'TRAINEE' AND NOT EXISTS (
+                    SELECT 1 FROM trainees t WHERE t.user_id = u.id
+                ) ORDER BY lower(u.email), u.id;
+            """)
+            return cursor.fetchall()
 
 
 def get_trainee(trainee_id):
@@ -36,6 +52,13 @@ def create_trainee(id_user, id_cohort, trainee_status, user_onboarding_date):
     try:
         with closing(get_connection()) as connection, connection:
             with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(78421, %s);", (id_user,))
+                cursor.execute("SELECT id FROM users WHERE id = %s AND role = 'TRAINEE';", (id_user,))
+                if cursor.fetchone() is None:
+                    raise InvalidTraineeUserError
+                cursor.execute("SELECT id FROM trainees WHERE user_id = %s LIMIT 1;", (id_user,))
+                if cursor.fetchone() is not None:
+                    raise TraineeAlreadyExistsError
                 cursor.execute("""
                     INSERT INTO trainees (user_id, cohort_id, status, onboarding_date)
                     SELECT id, %s, %s, %s FROM users

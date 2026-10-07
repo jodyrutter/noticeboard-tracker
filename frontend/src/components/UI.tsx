@@ -121,12 +121,14 @@ export function State({
   error,
   retry,
   empty,
+  hasData = false,
   children,
 }: {
   loading: boolean;
   error: string;
   retry: () => void;
   empty?: boolean;
+  hasData?: boolean;
   children: ReactNode;
 }) {
   if (loading)
@@ -136,7 +138,7 @@ export function State({
         Loading your workspace…
       </div>
     );
-  if (error) return <ErrorBox error={error} retry={retry} />;
+  if (error && !hasData) return <ErrorBox error={error} retry={retry} />;
   if (empty)
     return (
       <div className="empty">
@@ -145,7 +147,12 @@ export function State({
         <p>New records will appear here when they’re added.</p>
       </div>
     );
-  return <>{children}</>;
+  return (
+    <>
+      {error && <ErrorBox error={error} retry={retry} />}
+      {children}
+    </>
+  );
 }
 export function Modal({
   title,
@@ -203,11 +210,13 @@ export function RecordForm({
   fields,
   submit,
   label = "Save changes",
+  children,
   done,
 }: {
   fields: Field[];
   submit: (values: Record<string, string>) => Promise<unknown>;
   label?: string;
+  children?: ReactNode;
   done: () => void;
 }) {
   const formId = useId();
@@ -233,6 +242,7 @@ export function RecordForm({
   }
   return (
     <form onSubmit={save} className="record-form">
+      {children}
       {fields.map((f) => (
         <label className="field" key={f.name}>
           <span id={`${formId}-${f.name}-label`}>{f.label}</span>
