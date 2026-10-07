@@ -1,6 +1,8 @@
 import { authStore } from "../auth/authStore";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "/backend";
+const BASE_URL = import.meta.env.PROD
+  ? "/backend"
+  : (import.meta.env.VITE_API_URL ?? "/backend");
 
 export class ApiError extends Error {
   status: number;

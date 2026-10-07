@@ -4,47 +4,42 @@ from contextlib import closing
 
 
 def create_notification(user_id, message):
-    connection = get_connection()
-    cursor = connection.cursor()
+    with closing(get_connection()) as connection, connection:
+        with closing(connection.cursor()) as cursor:
 
-    cursor.execute(
-        """
-        INSERT INTO notifications (user_id, message)
-        VALUES (%s, %s)
-        RETURNING id;
-        """,
-        (user_id, message)
-    )
+            cursor.execute(
+                """
+                INSERT INTO notifications (user_id, message)
+                VALUES (%s, %s)
+                RETURNING id;
+                """,
+                (user_id, message)
+            )
 
-    notification_id = cursor.fetchone()[0]
+            notification_id = cursor.fetchone()[0]
 
-    connection.commit()
-    cursor.close()
-    connection.close()
 
-    return notification_id
+            return notification_id
 
 
 def get_notifications_by_user(user_id):
-    connection = get_connection()
-    cursor = connection.cursor(cursor_factory=RealDictCursor)
+    with closing(get_connection()) as connection, connection:
+        with closing(connection.cursor(cursor_factory=RealDictCursor)) as cursor:
 
-    cursor.execute(
-        """
-        SELECT *
-        FROM notifications
-        WHERE user_id = %s
-        ORDER BY created_at DESC;
-        """,
-        (user_id,)
-    )
+            cursor.execute(
+                """
+                SELECT *
+                FROM notifications
+                WHERE user_id = %s
+                ORDER BY created_at DESC;
+                """,
+                (user_id,)
+            )
 
-    rows = cursor.fetchall()
+            rows = cursor.fetchall()
 
-    cursor.close()
-    connection.close()
 
-    return rows
+            return rows
 
 
 

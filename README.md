@@ -13,6 +13,10 @@ least 32 bytes. For multiple workers or Lambda instances, set
 limits are process-local. Signup always creates a TRAINEE user; a DB admin sets
 the first HR/Manager roles.
 
+## AWS deployment
+
+See [deploy/README.md](deploy/README.md) for same-origin HTTPS, Nginx, the managed FastAPI service and the update script. Production React calls `/backend` on its own HTTPS host; FastAPI listens only on loopback HTTP.
+
 ## Roles and permissions
 
 All business endpoints require a valid login. Missing/expired/revoked tokens
@@ -44,7 +48,7 @@ database role on every request. HR is not a superuser.
 | `POST /notifications` | Disabled for all MVP roles (403); no creation permission was specified. |
 
 Signup/login remain public and rate limited. `/api/me` and `/api/logout` remain
-available to every authenticated role. Docs remain public. There are no
+available to every authenticated role. Docs remain public locally and are disabled when NOTICEBOARD_ENV=production. There are no
 public role-promotion or HR/Manager signup endpoints. HR can manage roles through
 `GET /users/promotion` and `PATCH /users/{user_id}/role`.
 

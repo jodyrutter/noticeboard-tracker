@@ -1,16 +1,18 @@
+import os
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from auth_routes import router as auth_router, limiter, rate_limit_exceeded_handler
 
+from security import BusinessRoute, RequestSecurityMiddleware, SECURITY_HEADERS
+
 from auth import CurrentUser, HRUser, ManagerUser, TraineeUser, StaffUser
 
 from services.personal_service import get_own_trainee, get_own_cohort, get_own_progress, MultipleTraineeRecordsError
 
-from schemas import PlanAssignmentsUpdate, CohortMembersUpdate, RoleUpdate, TraineeReplace, TraineeUpdate, TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
+from schemas import RecordId, PlanAssignmentsUpdate, CohortMembersUpdate, RoleUpdate, TraineeReplace, TraineeUpdate, TraineeCreate, CohortCreate, PlanCreate, ProgressCreate, NotificationCreate
 
 from services.trainee_service import (
     get_all_trainees, get_unenrolled_users, TraineeAlreadyExistsError,
@@ -44,22 +46,32 @@ from services.dashboard_service import (
 from services.tracking_service import get_tracking
 from services.promotion_service import get_promotion_users, update_user_role, AssignedTrainingError
 
-app = FastAPI(title="Noticeboard Tracker", version="0.1.0")
+production = os.environ.get("NOTICEBOARD_ENV") == "production"
+app = FastAPI(title="Noticeboard Tracker", version="0.1.0",
+              docs_url=None if production else "/docs",
+              redoc_url=None if production else "/redoc",
+              openapi_url=None if production else "/openapi.json")
+
+app.router.route_class = BusinessRoute
+app.add_middleware(RequestSecurityMiddleware)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.include_router(auth_router)
 
 
-# Avoid echoing passwords in validation errors.
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
-    if request.url.path in ("/api/signup", "/api/login"):
-        return JSONResponse(status_code=422, content={"detail": [
-            {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
-            for error in exc.errors()
-        ]})
-    return await request_validation_exception_handler(request, exc)
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
+        for error in exc.errors()
+    ]})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"}, headers=SECURITY_HEADERS)
+
 
 @app.get("/users/promotion")
 def promotion_users(current_user: HRUser):
@@ -67,7 +79,7 @@ def promotion_users(current_user: HRUser):
 
 
 @app.patch("/users/{user_id}/role")
-def change_user_role(user_id: int, body: RoleUpdate, current_user: HRUser):
+def change_user_role(user_id: RecordId, body: RoleUpdate, current_user: HRUser):
     if user_id == current_user.user_id:
         raise HTTPException(status_code=403, detail="You cannot change your own role. Ask another HR user to make this change.")
     user = update_user_role(user_id, body.role)
@@ -107,7 +119,7 @@ def list_plans(current_user: CurrentUser):
     return plans
 
 @app.get("/progress/trainee/{trainee_id}")
-def trainee_progress(trainee_id: int, current_user: CurrentUser):
+def trainee_progress(trainee_id: RecordId, current_user: CurrentUser):
     if current_user.role != "MANAGER":
         if get_own_trainee(current_user.user_id, trainee_id) is None:
             raise HTTPException(status_code=404, detail="Trainee not found")
@@ -116,14 +128,14 @@ def trainee_progress(trainee_id: int, current_user: CurrentUser):
     return progress
 
 @app.get("/notifications/{user_id}/unread-count")
-def unread_notifications(user_id: int, current_user: CurrentUser):
+def unread_notifications(user_id: RecordId, current_user: CurrentUser):
     if user_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="You can only view your own notifications")
     return {"unread": get_unread_count(user_id)}
 
 
 @app.get("/notifications/{user_id}")
-def user_notifications(user_id: int, current_user: CurrentUser):
+def user_notifications(user_id: RecordId, current_user: CurrentUser):
     if user_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="You can only view your own notifications")
     notifications = get_notifications_by_user(user_id)
@@ -162,7 +174,7 @@ def add_plan(body: PlanCreate, current_user: ManagerUser):
     return {'id': plan_id, 'message': 'Plan created'}
 
 @app.patch("/cohorts/{cohort_id}/members")
-def edit_cohort_members(cohort_id: int, body: CohortMembersUpdate, current_user: HRUser):
+def edit_cohort_members(cohort_id: RecordId, body: CohortMembersUpdate, current_user: HRUser):
     updated = update_cohort_members(cohort_id, body.add, body.remove)
     if updated is None:
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -185,7 +197,7 @@ async def invalid_assignment_reference(request: Request, exc: AssignmentReferenc
 
 
 @app.get("/plans/{plan_id}/assignments")
-def plan_assignments(plan_id: int, current_user: ManagerUser):
+def plan_assignments(plan_id: RecordId, current_user: ManagerUser):
     ids = get_plan_assignments(plan_id)
     if ids is None:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -193,7 +205,7 @@ def plan_assignments(plan_id: int, current_user: ManagerUser):
 
 
 @app.patch("/plans/{plan_id}/assignments")
-def edit_plan_assignments(plan_id: int, body: PlanAssignmentsUpdate, current_user: ManagerUser):
+def edit_plan_assignments(plan_id: RecordId, body: PlanAssignmentsUpdate, current_user: ManagerUser):
     ids = update_plan_assignments(plan_id, body.add, body.remove)
     if ids is None:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -201,12 +213,12 @@ def edit_plan_assignments(plan_id: int, body: PlanAssignmentsUpdate, current_use
 
 
 @app.post("/plans/{plan_id}/assign/trainee/{trainee_id}", status_code=201)
-def assign_trainee(plan_id: int, trainee_id: int, current_user: ManagerUser):
+def assign_trainee(plan_id: RecordId, trainee_id: RecordId, current_user: ManagerUser):
     assignment_id = assign_plan_to_trainee(plan_id, trainee_id)
     return {'id': assignment_id, 'message': 'Plan assigned to trainee'}
 
 @app.post("/plans/{plan_id}/assign/cohort/{cohort_id}", status_code=201)
-def assign_cohort(plan_id: int, cohort_id: int, current_user: ManagerUser):
+def assign_cohort(plan_id: RecordId, cohort_id: RecordId, current_user: ManagerUser):
     assignment_ids = assign_plan_to_cohort(plan_id, cohort_id)
     return {'assignment_ids': assignment_ids, 'message': 'Plan assigned to cohort'}
 
@@ -225,14 +237,14 @@ def add_notification(body: NotificationCreate, current_user: CurrentUser):
     raise HTTPException(status_code=403, detail="Notification creation is not enabled for any MVP role")
 
 @app.put("/notifications/{notification_id}/read")
-def read_notification(notification_id: int, current_user: CurrentUser):
+def read_notification(notification_id: RecordId, current_user: CurrentUser):
     if not mark_notification_as_read(notification_id, current_user.user_id):
         raise HTTPException(status_code=404, detail="Notification not found")
     return {'message': 'Notification marked as read'}
 
 
 @app.patch("/trainees/{trainee_id}")
-def edit_trainee(trainee_id: int, body: TraineeUpdate, current_user: HRUser):
+def edit_trainee(trainee_id: RecordId, body: TraineeUpdate, current_user: HRUser):
     updated_id = update_trainee(trainee_id, body.model_dump(exclude_unset=True))
     if updated_id is None:
         raise HTTPException(status_code=404, detail="Trainee not found")
@@ -250,7 +262,7 @@ async def invalid_cohort(request: Request, exc: InvalidCohortError):
 
 
 @app.get("/trainees/{trainee_id}")
-def trainee_detail(trainee_id: int, current_user: CurrentUser):
+def trainee_detail(trainee_id: RecordId, current_user: CurrentUser):
     trainee = get_trainee(trainee_id) if current_user.role in ("HR", "MANAGER") else get_own_trainee(current_user.user_id, trainee_id)
     if trainee is None:
         raise HTTPException(status_code=404, detail="Trainee not found")
@@ -258,7 +270,7 @@ def trainee_detail(trainee_id: int, current_user: CurrentUser):
 
 
 @app.put("/trainees/{trainee_id}")
-def replace_trainee(trainee_id: int, body: TraineeReplace, current_user: HRUser):
+def replace_trainee(trainee_id: RecordId, body: TraineeReplace, current_user: HRUser):
     updated_id = update_trainee(trainee_id, body.model_dump())
     if updated_id is None:
         raise HTTPException(status_code=404, detail="Trainee not found")
@@ -266,7 +278,7 @@ def replace_trainee(trainee_id: int, body: TraineeReplace, current_user: HRUser)
 
 
 @app.get("/cohorts/{cohort_id}")
-def cohort_detail(cohort_id: int, current_user: CurrentUser):
+def cohort_detail(cohort_id: RecordId, current_user: CurrentUser):
     cohort = get_cohort(cohort_id) if current_user.role in ("HR", "MANAGER") else get_own_cohort(current_user.user_id, cohort_id)
     if cohort is None:
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -274,7 +286,7 @@ def cohort_detail(cohort_id: int, current_user: CurrentUser):
 
 
 @app.get("/plans/{plan_id}")
-def plan_detail(plan_id: int, current_user: CurrentUser):
+def plan_detail(plan_id: RecordId, current_user: CurrentUser):
     plan = get_plan(plan_id, None if current_user.role == "MANAGER" else current_user.user_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -282,7 +294,7 @@ def plan_detail(plan_id: int, current_user: CurrentUser):
 
 
 @app.put("/plans/{plan_id}")
-def edit_plan(plan_id: int, body: PlanCreate, current_user: ManagerUser):
+def edit_plan(plan_id: RecordId, body: PlanCreate, current_user: ManagerUser):
     updated_id = update_plan(plan_id, body.title, body.description, body.due_date)
     if updated_id is None:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -290,14 +302,14 @@ def edit_plan(plan_id: int, body: PlanCreate, current_user: ManagerUser):
 
 
 @app.delete("/plans/{plan_id}", status_code=204)
-def remove_plan(plan_id: int, current_user: ManagerUser):
+def remove_plan(plan_id: RecordId, current_user: ManagerUser):
     if not delete_plan(plan_id):
         raise HTTPException(status_code=404, detail="Plan not found")
     return Response(status_code=204)
 
 
 @app.get("/progress/plan/{plan_id}")
-def plan_progress(plan_id: int, current_user: CurrentUser):
+def plan_progress(plan_id: RecordId, current_user: CurrentUser):
     if current_user.role != "MANAGER":
         if get_plan(plan_id, current_user.user_id) is None:
             raise HTTPException(status_code=404, detail="Plan not found")

@@ -1,0 +1,12 @@
+*
+!backend/
+!backend/**
+!deploy/
+!deploy/**
+!frontend/
+!frontend/dist/
+!frontend/dist/**
+**/__pycache__/
+**/.env*
+**/*.pem
+**/*.key

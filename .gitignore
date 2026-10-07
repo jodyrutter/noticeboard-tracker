@@ -224,3 +224,10 @@ frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
 *.tsbuildinfo
+
+.env.*
+!.env.example
+*.pem
+*.key
+
+.deploy.lock

@@ -1,0 +1,24 @@
+[Unit]
+Description=NoticeBoard FastAPI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=noticeboard
+Group=noticeboard
+WorkingDirectory=/opt/noticeboard-tracker
+EnvironmentFile=/etc/noticeboard/backend.env
+Environment=NOTICEBOARD_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/noticeboard-tracker/.venv/bin/python deploy/check_config.py
+ExecStart=/opt/noticeboard-tracker/.venv/bin/python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --root-path /backend --no-server-header
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -36,16 +36,14 @@ def get_trainee(trainee_id):
             return cursor.fetchone()
 
 def get_all_trainees():
-    connection = get_connection()
-    cursor = connection.cursor(cursor_factory=RealDictCursor)
-    
-    cursor.execute("SELECT t.*, u.name, u.email, c.name AS cohort_name FROM trainees t JOIN users u ON u.id = t.user_id LEFT JOIN cohorts c ON c.id = t.cohort_id ORDER BY t.id;");
-    rows = cursor.fetchall();
-    
-    cursor.close();
-    connection.close();
-    
-    return rows
+    with closing(get_connection()) as connection, connection:
+        with closing(connection.cursor(cursor_factory=RealDictCursor)) as cursor:
+
+            cursor.execute("SELECT t.*, u.name, u.email, c.name AS cohort_name FROM trainees t JOIN users u ON u.id = t.user_id LEFT JOIN cohorts c ON c.id = t.cohort_id ORDER BY t.id;");
+            rows = cursor.fetchall();
+
+
+            return rows
 
     
 def create_trainee(id_user, id_cohort, trainee_status, user_onboarding_date):

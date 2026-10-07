@@ -38,22 +38,20 @@ def create_progress_report(trainee_id, plan_id, status, comments, user_id):
 
 
 def get_progress_by_trainee(trainee_id):
-    connection = get_connection()
-    cursor = connection.cursor(cursor_factory=RealDictCursor)
+    with closing(get_connection()) as connection, connection:
+        with closing(connection.cursor(cursor_factory=RealDictCursor)) as cursor:
 
-    cursor.execute(
-        """
-        SELECT *
-        FROM progress_reports
-        WHERE trainee_id = %s
-        ORDER BY submitted_at DESC;
-        """,
-        (trainee_id,)
-    )
+            cursor.execute(
+                """
+                SELECT *
+                FROM progress_reports
+                WHERE trainee_id = %s
+                ORDER BY submitted_at DESC;
+                """,
+                (trainee_id,)
+            )
 
-    rows = cursor.fetchall()
+            rows = cursor.fetchall()
 
-    cursor.close()
-    connection.close()
 
-    return rows
+            return rows
