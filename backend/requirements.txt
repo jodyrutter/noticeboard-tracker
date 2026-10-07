@@ -1,0 +1,9 @@
+psycopg2-binary
+fastapi>=0.115,<1
+pydantic>=2.10,<3
+uvicorn>=0.30,<1
+mangum>=0.19,<1
+pwdlib[argon2]>=0.2,<1
+PyJWT>=2.10,<3
+slowapi>=0.1.9,<1
+redis>=5,<7
